@@ -2,12 +2,12 @@
   <img src="docs/public/dokke-icon.png" width="120" alt="Dokke">
 </p>
 
-<h1 align="center">Dokke</h1>
+<h1 align="center">Dokke for Windows</h1>
 
 <p align="center"><a href="README.en.md">Read this README in English</a></p>
 
 <p align="center">
-  <b>Dock de apps que sincroniza do Mac pra qualquer device na LAN.</b><br>
+  <b>Dock de apps que sincroniza do Windows pra qualquer device na LAN.</b><br>
   Nasceu de um Galaxy J5 velho parado em casa — hoje roda em qualquer Android, iPhone ou navegador.
 </p>
 
