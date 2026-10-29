@@ -1,0 +1,47 @@
+name: Windows
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write   # anexar o instalador ao release quando a tag for publicada
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Inno Setup
+        run: choco install innosetup --no-progress -y
+      - run: npm ci
+      - name: Build (Dokke.exe + Node + servidor + instalador)
+        shell: pwsh
+        run: ./scripts/build-windows.ps1
+      - name: Teste de fumaça no Windows
+        shell: pwsh
+        run: ./scripts/smoke-windows.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Dokke-Windows
+          path: |
+            dist/Dokke-Setup-*.exe
+            dist/SHA256SUMS.txt
+      - name: Anexar ao release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view $env:GITHUB_REF_NAME 2>$null
+          if ($LASTEXITCODE -ne 0) { gh release create $env:GITHUB_REF_NAME --generate-notes }
+          gh release upload $env:GITHUB_REF_NAME (Get-ChildItem dist/Dokke-Setup-*.exe) dist/SHA256SUMS.txt --clobber

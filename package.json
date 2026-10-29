@@ -1,0 +1,25 @@
+{
+  "name": "dokke",
+  "version": "0.2.10",
+  "private": true,
+  "type": "module",
+  "portless": {
+    "name": "dokke",
+    "script": "start"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test",
+    "windows:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows.ps1"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "ws": "^8.21.1"
+  },
+  "devDependencies": {
+    "ds-store": "^0.1.6",
+    "playwright": "^1.62.1"
+  }
+}

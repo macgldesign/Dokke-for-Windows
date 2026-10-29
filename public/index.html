@@ -1,0 +1,3653 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#080301">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/png" href="/icon-192.png">
+<link rel="icon" media="(prefers-color-scheme: light)" type="image/png" href="/icon-192.png">
+<link rel="icon" media="(prefers-color-scheme: dark)" type="image/png" href="/icon-192-dark.png">
+<link rel="apple-touch-icon" href="/icon-192.png">
+  <title>Dokke</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,700&display=swap" rel="stylesheet">
+<style>
+  @font-face{
+    font-family: "Inter";
+    src: url("/fonts/Inter-Regular.otf") format("opentype");
+    font-style: normal;
+    font-weight: 400 500;
+    font-display: swap;
+  }
+  @font-face{
+    font-family: "Inter";
+    src: url("/fonts/Inter-SemiBold.otf") format("opentype");
+    font-style: normal;
+    font-weight: 600 900;
+    font-display: swap;
+  }
+  :root {
+    --ink: rgba(255,255,255,.94);
+    --ink-2: rgba(255,255,255,.62);
+    --ink-3: rgba(255,255,255,.5);
+    --accent: #0a84ff;
+    --green: #30d158;
+    --amber: #ffd60a;
+    --red: #ff453a;
+    --dokke-orange: #f08737;
+    --glass: rgba(255,255,255,.07);
+    --edge: rgba(255,255,255,.10);
+    --dokke-safe-top: env(safe-area-inset-top, 0px);
+    --dokke-safe-bottom: env(safe-area-inset-bottom, 0px);
+    --dokke-viewport-height: 100%;
+    --app-tile: min(40vmin, max(21vw,21vh), 180px);
+    --icon-turn: 0deg;
+  }
+  *{ box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+  html,body{
+    width:100%; height:var(--dokke-viewport-height);
+    min-height:var(--dokke-viewport-height);
+    background:#080301 !important;
+    overflow:hidden;
+  }
+  html{
+    background-color:#080301 !important;
+    color-scheme: dark;
+  }
+  body{
+    font-family: "Inter", -apple-system, "SF Pro Display", "SF Pro Text", system-ui, sans-serif;
+    color: var(--ink);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    position: fixed;
+    inset: 0;
+    top: calc(-1px - env(safe-area-inset-top, 0px));
+    right: calc(-1px - env(safe-area-inset-right, 0px));
+    bottom: calc(-1px - env(safe-area-inset-bottom, 0px));
+    left: calc(-1px - env(safe-area-inset-left, 0px));
+    padding: 0;
+    overscroll-behavior: none;
+  }
+  #dokke, #dokke *{
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-user-drag: none;
+  }
+  .bg{
+    position: fixed;
+    top: calc(-32px - env(safe-area-inset-top, 0px));
+    right: calc(-32px - env(safe-area-inset-right, 0px));
+    bottom: calc(-32px - env(safe-area-inset-bottom, 0px));
+    left: calc(-32px - env(safe-area-inset-left, 0px));
+    z-index:0; pointer-events:none;
+    background:
+      radial-gradient(130% 65% at 50% -10%, rgba(232, 111, 39, 0.46), transparent 60%),
+      radial-gradient(90% 55% at 85% 45%, rgba(184, 76, 20, 0.28), transparent 55%),
+      linear-gradient(180deg, #241106 0%, #150804 55%, #080301 100%);
+  }
+
+  main{
+    position: fixed; inset:0; height:var(--dokke-viewport-height); min-height:0;
+    padding: 0;
+    z-index:1;
+  }
+  /* Duas camadas independentes: cada tela ocupa a viewport inteira.
+     A WebView do Android não resolve height:100% em flex no fluxo — por isso
+     cada .screen é absolute e o container não empilha. A troca usa apenas
+     translate no compositor; a camada ativa só muda depois do slide. */
+  .screens{
+    position: fixed; inset:0; height:var(--dokke-viewport-height); min-height:0;
+    padding: 0 14px;
+    overflow: hidden;
+    touch-action: none;
+  }
+  .screen{
+    position: absolute; top:0; left:0; right:0; bottom:auto; height:var(--dokke-viewport-height); min-height:0;
+    display: flex; flex-direction: column;
+    padding-top: env(safe-area-inset-top, 0px);
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+    will-change: transform;
+    contain: paint;
+  }
+  /* As duas telas ficam renderizadas durante o slide; só a camada ativa recebe toque. */
+  #screenApps{ pointer-events: auto; z-index: 1; }
+  #screenRecents{
+    pointer-events: none;
+    z-index: 0;
+    transform: translate3d(0, 100%, 0);
+  }
+  /* body.is-recents inverte */
+  body.is-recents #screenApps{
+    pointer-events: none;
+    z-index: 0;
+    transform: translate3d(0, -100%, 0);
+  }
+  body.is-recents #screenRecents{
+    pointer-events: auto;
+    z-index: 1;
+    transform: translate3d(0, 0, 0);
+  }
+  @keyframes pulse{
+    0%{ box-shadow: 0 0 0 0 rgba(48,209,88,.55); }
+    70%{ box-shadow: 0 0 0 9px rgba(48,209,88,0); }
+    100%{ box-shadow: 0 0 0 0 rgba(48,209,88,0); }
+  }
+  @media (display-mode: standalone){
+    :root{ --dokke-viewport-height: 100dvh; }
+  }
+
+  /* ---- stage (launchpad full-bleed; chrome lateral removido) ---- */
+  .stage{
+    flex: 1 1 auto; min-height: 0; margin-top: 10px;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .launchpadwrap{
+    flex: 1 1 auto; min-height: 0;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .launchpad{
+    flex: 1 1 auto; min-height: 0;
+    display: flex;
+    overflow-x: auto; overflow-y: hidden;
+    scroll-snap-type: x mandatory;
+    scroll-snap-stop: always;
+    scroll-behavior: smooth;
+    scrollbar-width: none;
+    /* O pager horizontal é conduzido pelo JS. Se o Safari assume pan-x,
+       gestos verticais iniciados nas bordas perdem o ponteiro antes do slide. */
+    touch-action: none;
+    overscroll-behavior: none;
+  }
+  .launchpad::-webkit-scrollbar{ display: none; }
+  .launchpad-track{
+    display:flex; flex:0 0 auto; width:100%; min-width:100%; height:100%;
+  }
+  .page{
+    flex: 0 0 100%;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* Cada slide é uma página fechada: o pager não deve revelar slots da
+       página seguinte enquanto a página atual está em foco. */
+    overflow: hidden;
+    box-sizing: border-box;
+    /* A largura do slide permanece integral para não alterar o scrollLeft. */
+    --tile: var(--app-tile);
+    /* DockIcon macOS: card 80, frame 68, inset 6, raios 28/20. O PNG web
+       normalizado usa 80% para ficar levemente maior na referência móvel. */
+    --tile-r: 0.32;
+    --tile-in: 0.80;
+    --tile-in-r: 0.27;
+  }
+  .page-grid{
+    width: 100%; height: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, var(--tile));
+    grid-template-rows: repeat(4, var(--tile));
+    grid-gap: 12px;
+    justify-content: center;
+    align-content: center;
+    padding: 10px 24px;
+    box-sizing: border-box;
+    transform-origin: center;
+  }
+  @supports (width: min(1px, 2px)){
+    .page-grid{
+      /* Uma régua única evita que o giro aumente demais o vão entre slides
+         ou deixe os slots colados no retrato. */
+      grid-gap: clamp(20px, 3vw, 32px);
+      justify-content: center;
+      padding: clamp(8px, 2vw, 24px) clamp(12px, 3vw, 32px);
+    }
+  }
+  /* A régua do landscape é compartilhada com o portrait: trocar o sentido
+     não pode aumentar ou reduzir os cards. */
+  @media (min-width:700px){
+    :root{ --app-tile: min(max(22vw,22vh), min(30vw,30vh), 220px); }
+  }
+  /* WebView antigo (ex.: Android 6 sem grid): fallback flex 2x4 */
+  @supports not (display: grid){
+    .page-grid{
+      display: flex; flex-wrap: wrap;
+      align-content: center; justify-content: space-around;
+    }
+    .page-grid .atile{ flex: 0 0 var(--app-tile); }
+  }
+  .atile{
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    cursor: pointer; border-radius: 20px;
+    user-select: none; -webkit-user-select: none;
+    min-height: 0;
+    width: var(--tile); height: var(--tile);
+    container-type: inline-size;
+    -webkit-touch-callout: none;
+  }
+  .atile.empty{
+    cursor: default;
+    pointer-events: none;
+  }
+  .atile.empty .aglass{
+    background: rgba(255,255,255,.035);
+    border-color: rgba(240,135,55,.18);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.035), 0 0 0 1px rgba(0,0,0,.12);
+  }
+  .atile.empty .aglass::before{ display:none; }
+  /* O gesto controla apenas o pager; a superfície dos cards permanece
+     idêntica durante e depois da troca de página. */
+  body.swiping .launchpad{
+    scroll-snap-type: none !important;
+  }
+  .android-webview .aglass{
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.24), 0 2px 5px rgba(0,0,0,.24);
+  }
+  .android-webview .aglass::before{ display: none; }
+  .android-webview .launchpad{
+    touch-action: none;
+    -webkit-overflow-scrolling: auto;
+    scroll-snap-type: none;
+    scroll-behavior: auto;
+  }
+  @keyframes appPress{
+    0%{ transform:scale(1); }
+    18%{ transform:scale(.95); }
+    48%{ transform:scale(.975); }
+    100%{ transform:scale(1); }
+  }
+  .atile.is-activating, .dcard.is-activating{
+    background: transparent !important;
+    animation: appPress .30s cubic-bezier(.22,.61,.36,1);
+    will-change: transform;
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    .atile.is-activating, .dcard.is-activating{ animation:none; }
+  }
+  /* glass base (tela 2 .fav sobrescreve com tamanhos próprios) */
+  .aglass{
+    position: relative;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(160deg, rgba(255,255,255,.24), rgba(210,95,30,.18) 55%, rgba(35,16,8,.75));
+    border: 1.5px solid rgba(240, 135, 55, 0.40);
+    box-shadow: inset 0 1.5px 0 rgba(255,255,255,.35), 0 0 18px rgba(210,95,30,.22), 0 8px 18px rgba(0,0,0,.45);
+    overflow: hidden;
+  }
+  .aglass::before{
+    content: ""; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(160deg, rgba(255,255,255,.28), transparent 45%);
+    pointer-events: none;
+  }
+  /* Websites keep the same outer glass as apps, with the white plate used by
+     the native PC tile so a small or dark favicon remains recognizable. */
+  .website-plate{
+    position: relative; z-index: 1;
+    display: flex; align-items: center; justify-content: center;
+    width: 80%; height: 80%;
+    border: 1px solid rgba(255,255,255,.72);
+    border-radius: 26%;
+    background: rgba(255,255,255,.96);
+    box-shadow: inset 0 1px 1px rgba(255,255,255,.52), 0 1px 3px rgba(0,0,0,.18);
+    overflow: hidden;
+  }
+  .atile .aglass .website-plate img.aicon{
+    width: calc(100% * var(--tile-in)); height: calc(100% * var(--tile-in));
+    border-radius: 18%;
+    object-fit: cover;
+  }
+  .atile .aglass .website-plate .gicon{
+    width: calc(100% * var(--tile-in)); height: calc(100% * var(--tile-in));
+    border-radius: 18%;
+    color: rgba(0,0,0,.62);
+    text-shadow: none;
+    font-size: 30cqi;
+  }
+  .aglass .gicon, .aglass img.aicon{
+    object-fit: cover;
+    object-position: center;
+    display: block;
+    position: relative; z-index: 1;
+    /* Mantém a rotação configurável sem criar uma textura GPU extra no Android. */
+    backface-visibility: visible;
+    -webkit-backface-visibility: visible;
+    transform: rotate(var(--icon-turn));
+    transform-origin: center;
+    transition: transform .18s cubic-bezier(.22,.61,.36,1);
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-user-drag: none;
+    pointer-events: none;
+  }
+  .aglass .gicon{
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; color: #fff;
+    text-shadow: 0 1px 2px rgba(0,0,0,.35);
+  }
+  /* launchpad: tamanho fluido — aglass e ícone preenchem o tile */
+  .atile .aglass{
+    width: 100%; height: 100%;
+    border-radius: 32%;
+  }
+  .atile .aglass::before{ border-radius: 32%; }
+  .atile .aglass .gicon, .atile .aglass img.aicon{
+    width: 80%; height: 80%;
+    border-radius: 27%;
+  }
+  .atile .aglass img.aicon:not(.ready){ opacity:0; transition: opacity .16s ease; }
+  .atile .aglass img.aicon.ready{ opacity:1; }
+  .atile .aglass .gicon{ font-size: 30px; }
+  @supports (width: 1cqi){
+    .atile .aglass{ border-radius: calc(100cqi * var(--tile-r)); }
+    .atile .aglass::before{ border-radius: calc(100cqi * var(--tile-r)); }
+    .atile .aglass .gicon, .atile .aglass img.aicon{
+      width: calc(100cqi * var(--tile-in)); height: calc(100cqi * var(--tile-in));
+      border-radius: calc(100% * var(--tile-in-r));
+    }
+    .atile .aglass .gicon{ font-size: 30cqi; }
+  }
+  .atile .aname{
+    display: none;
+  }
+  .atile .astatus{
+    display: none;
+  }
+  .atile .astatus.on{ color: var(--accent); }
+
+  /* ---- dots paginação = mesmo visual dos vdots (eixo horizontal) ---- */
+  .dots{
+    flex: 0 0 auto; display: flex; justify-content: center; align-items: center;
+    padding: 22px 0 calc(10px + env(safe-area-inset-bottom, 0px));
+  }
+  .dots .d{
+    width: 6px; height: 6px; border-radius: 50%;
+    background: rgba(255,255,255,.35);
+    border: none;
+    margin: 0 5px;
+    transition: all .2s ease;
+  }
+  .dots .d.on{
+    background: #fff;
+    width: 14px; height: 6px;
+    border-radius: 3px;
+  }
+
+  /* ---- vdots (lateral, troca de tela) ---- */
+  .vdots{
+    position: fixed;
+    right: calc(10px + env(safe-area-inset-right, 0px));
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 30;
+    isolation: isolate;
+    display: flex; flex-direction: column; align-items: center;
+  }
+  /* Os V-Dots permanecem à direita em qualquer orientação. */
+  .vdots .d{
+    width: 6px; height: 6px; border-radius: 50%;
+    background: rgba(255,255,255,.35); margin: 5px 0;
+    border: none;
+    transition: all .2s ease;
+  }
+  .vdots .d.on{ background: #fff; height: 14px; width: 6px; border-radius: 3px; }
+
+  /* ---- tela 2: dock horizontal organizado (abertos | fixados) ---- */
+  .recents{
+    flex: 1 1 auto; min-height: 0; height: 100%;
+    display: flex; flex-direction: column;
+    align-items: stretch; justify-content: space-between;
+    padding: env(safe-area-inset-top, 0px) 0 calc(env(safe-area-inset-bottom, 0px) + 8px);
+    box-sizing: border-box;
+  }
+  .thead{
+    flex: 0 0 auto;
+    width: 100%;
+    display: flex; flex-direction: row; align-items: baseline;
+    justify-content: center;
+    padding: 16px 20px 0;
+    box-sizing: border-box;
+  }
+  .ttitle{
+    font-family: "Bricolage Grotesque", sans-serif;
+    font-size: 26px; font-weight: 700;
+    color: rgba(255,255,255,.92);
+    letter-spacing: -0.02em;
+    pointer-events: none;
+    text-align: center;
+    width: 100%;
+  }
+  .rstage{
+    flex: 1 1 auto; min-height: 0;
+    width: 100%;
+    display: flex; flex-direction: column; align-items: stretch; justify-content: center;
+    padding: 0;
+    box-sizing: border-box;
+  }
+  .deck{
+    position: relative;
+    width: 100%;
+    height: calc(var(--app-tile) + 52px);
+    min-height: 180px;
+    max-height: 300px;
+    display: flex; align-items: center;
+    overflow-x: auto; overflow-y: hidden;
+    scrollbar-width: none;
+    touch-action: pan-x;
+    overscroll-behavior-x: contain;
+    /* Mesma margem lateral da grid da tela 1. */
+    padding: 0 clamp(12px, 3vw, 32px) 22px;
+    box-sizing: border-box;
+  }
+  .deck::-webkit-scrollbar{ display: none; }
+  .deck-inner{
+    display: flex; flex-direction: row; align-items: flex-end; justify-content: safe center;
+    gap: min(3vmin, 14px);
+    min-width: 100%; height: 100%;
+    padding: 0;
+    box-sizing: border-box;
+  }
+  .deck-group{
+    display: flex; flex: 0 0 auto; align-items: flex-end;
+    gap: min(3vmin, 14px);
+    height: 100%;
+  }
+  .dcard{
+    position: relative;
+    flex: 0 0 auto;
+    width: var(--app-tile);
+    height: calc(var(--app-tile) + 24px);
+    display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+    gap: 8px;
+    padding-bottom: 0;
+    cursor: pointer;
+    user-select: none; -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    container-type: inline-size;
+    --tile-r: 0.32;
+    --tile-in: 0.80;
+    --tile-in-r: 0.27;
+  }
+  .dcard .aglass{
+    flex: 0 0 auto;
+    width: var(--app-tile);
+    height: var(--app-tile);
+    border-radius: 32%;
+  }
+  .dcard .aglass::before{ border-radius: 32%; }
+  .dcard .aglass .gicon, .dcard .aglass img.aicon{
+    width: 80%; height: 80%;
+    border-radius: 27%;
+  }
+  .dcard .aglass .gicon{ font-size: clamp(30px, 3vw, 66px); }
+  @supports (width: 1cqi){
+    .dcard .aglass{ border-radius: calc(100cqi * var(--tile-r)); }
+    .dcard .aglass::before{ border-radius: calc(100cqi * var(--tile-r)); }
+    .dcard .aglass .gicon, .dcard .aglass img.aicon{
+      width: calc(100cqi * var(--tile-in)); height: calc(100cqi * var(--tile-in));
+      border-radius: calc(100% * var(--tile-in-r));
+    }
+    .dcard .aglass .gicon{ font-size: 30cqi; }
+  }
+  .dcard .dname{
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+  }
+  .dcard.front .dname{ opacity: 1; }
+  .rempty{
+    margin: auto;
+    color: var(--ink-3); font-size: 13px; text-align: center;
+    padding: 24px 28px; max-width: 280px; line-height: 1.4;
+  }
+  .thint{
+    flex: 0 0 auto;
+    text-align: center;
+    font-size: 12px;
+    color: rgba(255,255,255,.35);
+    padding: 8px 20px 0;
+    pointer-events: none;
+  }
+  .robscard{
+    flex: 0 0 auto; display: flex; align-items: center;
+    width: calc(100% - 40px); max-width: 360px;
+    margin: 18px 20px 0; padding: 12px 14px; border-radius: 18px;
+    background: linear-gradient(145deg, rgba(255,255,255,.11), rgba(255,255,255,.045) 58%, rgba(74,27,12,.25));
+    border: 1px solid rgba(255,255,255,.14);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 12px 24px rgba(0,0,0,.12);
+    backdrop-filter: blur(14px) saturate(130%);
+    -webkit-backdrop-filter: blur(14px) saturate(130%);
+    box-sizing: border-box;
+  }
+  .robscard .ic{ font-size: 20px; margin-right: 10px; }
+  .robscard .ot{ flex: 1 1 auto; font-size: 14px; font-weight: 700; }
+  .robscard .os{ font-size: 11px; font-weight: 600; color: var(--ink-2); }
+  .robscard .arr{ font-size: 16px; color: var(--ink-2); }
+
+  /* ---- landscape: grade 4x2, dock escala (GPU), arte normal no PWA ---- */
+  @media (orientation: landscape){
+    main{ padding: calc(env(safe-area-inset-top, 0px) + 6px) 0 0; }
+    .page-grid{
+      grid-template-columns: repeat(4, var(--tile));
+      grid-template-rows: repeat(2, var(--tile));
+    }
+    .launchpad{
+      /* A interface acompanha o viewport real; os ícones permanecem na
+         orientação normal nos dois clientes. */
+    }
+    .dots{
+      padding: 18px 0 calc(8px + env(safe-area-inset-bottom, 0px));
+    }
+    .vdots{
+      right: calc(4px + env(safe-area-inset-right, 0px));
+    }
+  }
+  /* Em touch landscape a régua de tamanho continua responsiva; o espaçamento
+     dos slots permanece o mesmo contrato global do retrato. */
+  @media (orientation: landscape) and (pointer: coarse){
+    :root{ --app-tile: min(max(22vw,22vh), min(30vw,40vh), 200px); }
+  }
+  /* ---- drawer (OBS) ---- */
+  .drawer{
+    position: fixed; top: 0; right: 0; bottom: 0; z-index: 55;
+    width: 92vw; max-width: 460px;
+    background: rgba(16,17,26,.96);
+    border-left: 1px solid rgba(255,255,255,.12);
+    transform: translateX(102%);
+    transition: transform .22s ease;
+    display: flex; flex-direction: column;
+    padding: 18px 16px 20px;
+  }
+  .drawer.show{ transform: none; }
+  .drawer-head{
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 16px; flex: 0 0 auto;
+  }
+  .drawer-head h2{ font-family: "Bricolage Grotesque", sans-serif; font-size: 17px; font-weight: 700; }
+  .drawer-close{
+    width: 40px; height: 40px; border-radius: 11px; border: 1px solid rgba(255,255,255,.14);
+    background: rgba(255,255,255,.08); color: var(--ink-2); cursor: pointer; font-size: 16px;
+  }
+  .drawer-body{ flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: none; }
+  .drawer-body::-webkit-scrollbar{ display: none; }
+
+  .obstop{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+  .obstop .led{ display:flex; align-items:center; gap:7px; font-size:12px; font-weight:600; color:var(--ink-2); }
+  .obstop .led .d{ width:8px; height:8px; border-radius:50%; background: var(--ink-3); }
+  .obstop .led.on .d{ background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 1.8s infinite; }
+  .obstop .led.err .d{ background: var(--amber); box-shadow: 0 0 8px var(--amber); }
+  .obstitle{ font-size: 14px; font-weight: 700; }
+  .obsscene{ display:grid; grid-template-columns: repeat(3, 1fr); grid-gap:10px; }
+  .scene{
+    padding: 13px 8px; border-radius: 15px; cursor:pointer; text-align:center;
+    font-size: 13px; font-weight: 600; color: var(--ink-2);
+    background: rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.09);
+    line-height:1.3; word-break:break-word;
+    user-select:none; -webkit-user-select:none;
+  }
+  .scene:active{ background: rgba(255,255,255,.10); }
+  .scene.active{
+    color:#fff; background: linear-gradient(180deg, rgba(10,132,255,.55), rgba(94,92,230,.5));
+    border-color: rgba(10,132,255,.85);
+    box-shadow: 0 8px 18px rgba(10,132,255,.30), inset 0 1px 0 rgba(255,255,255,.25);
+  }
+  .obsctl{ display:flex; margin-top:16px; }
+  .ctl{
+    flex:1; padding: 15px 6px 13px; border-radius: 17px; cursor:pointer;
+    display:flex; flex-direction:column; align-items:center;
+    background: rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.09);
+    font-size:12px; font-weight:600; color:var(--ink-2);
+    user-select:none; -webkit-user-select:none;
+  }
+  .ctl + .ctl{ margin-left:10px; }
+  .ctl:active{ background: rgba(255,255,255,.10); }
+  .ctl .ic{ font-size:19px; line-height:1; color: rgba(255,255,255,.7); margin-bottom:6px; }
+  .ctl.on-record, .ctl.on-stream{
+    background: rgba(255,69,58,.16); border-color: rgba(255,69,58,.55); color:#fff;
+  }
+  .ctl.on-record .ic, .ctl.on-stream .ic{ color: var(--red); animation: blink 1s infinite; }
+  @keyframes blink{ 0%,60%{opacity:1} 61%,100%{opacity:.35} }
+  .ctl.stop{ color: var(--red); font-size: 13px; }
+  .obsplaceholder{
+    padding: 26px 18px; text-align:center; font-size:13px; color:var(--ink-2); font-style:italic;
+  }
+  .obsplaceholder .ic{ font-size:26px; display:block; margin-bottom:10px; opacity:.7; }
+
+  /* ---- sheet / modal ---- */
+  .scrim{
+    position: fixed; top:0; left:0; right:0; bottom:0; z-index:50;
+    display:none; align-items:flex-end; justify-content:center;
+    padding: 0 14px 18px; background: rgba(2,4,10,.62);
+  }
+  .scrim.show{ display:flex; }
+  .scrim.confirm-scrim{
+    align-items:center;
+    padding:24px;
+    background:rgba(2,4,10,.70);
+    backdrop-filter:blur(18px) saturate(130%);
+    -webkit-backdrop-filter:blur(18px) saturate(130%);
+  }
+  .sheet{
+    width:100%; max-width: 460px; border-radius: 30px; padding: 22px 18px 20px;
+    background: rgba(24,26,38,.97);
+    border: 1px solid rgba(255,255,255,.12);
+    animation: rise .18s ease;
+    max-height: 78vh; overflow-y: auto; scrollbar-width: none;
+  }
+  .sheet::-webkit-scrollbar{ display: none; }
+  @keyframes rise{ from{ transform: translateY(14px); opacity:.4; } to{ transform:none; opacity:1; } }
+  .sheet h3{ font-size:17px; font-weight:700; margin-bottom:6px; }
+  .sheet .body{ font-size:13px; color:var(--ink-2); line-height:1.5; }
+  .sheet .srow{
+    display:flex; align-items:center; gap:12px; padding: 10px 6px;
+    border-bottom:1px solid rgba(255,255,255,.06); cursor:pointer;
+  }
+  .sheet .srow:last-child{ border-bottom:none; }
+  .sheet .srow:active{ background: rgba(255,255,255,.05); border-radius:14px; }
+  .sheet .srow img{ width: 40px; height: 40px; border-radius: 12px; object-fit: cover; flex: 0 0 auto; }
+  .sheet .srow .gicon{ width: 40px; height: 40px; border-radius: 12px; font-size: 14px; flex: 0 0 auto; }
+  .sheet .srow .pin{ font-size: 11px; color: var(--green); font-weight: 700; margin-left: auto; flex: 0 0 auto; }
+  .btns{ display:flex; margin-top: 20px; }
+  .btn{
+    flex:1; padding: 14px 10px; border-radius: 16px; cursor:pointer;
+    font-size:15px; font-weight:700; color: var(--ink);
+    background: rgba(255,255,255,.09); border:1px solid rgba(255,255,255,.12);
+  }
+  .btn + .btn{ margin-left:10px; }
+  .btn:active{ background: rgba(255,255,255,.15); }
+  .btn.ghost{ background: rgba(255,255,255,.05); color: var(--ink-2); }
+  .btn.danger{ background: rgba(255,69,58,.14); border-color: rgba(255,69,58,.45); color:#ff837d; }
+  .sheet.confirm-sheet{
+    max-width:340px;
+    padding:20px;
+    border-radius:28px;
+    background:linear-gradient(165deg, rgba(255,255,255,.15), rgba(255,255,255,.05) 58%, rgba(210,95,30,.12));
+    border-color:rgba(240,135,55,.30);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.22), 0 24px 60px rgba(0,0,0,.55), 0 0 30px rgba(210,95,30,.14);
+    backdrop-filter:blur(24px) saturate(145%);
+    -webkit-backdrop-filter:blur(24px) saturate(145%);
+  }
+  .confirm-sheet .confirm-icon{
+    width:54px; height:54px; margin:0 auto 14px; border-radius:18px;
+    border-color:rgba(240,135,55,.42);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.30), 0 8px 20px rgba(0,0,0,.25);
+  }
+  .confirm-sheet .confirm-icon .aicon,
+  .confirm-sheet .confirm-icon .gicon{ width:88%; height:88%; border-radius:16%; }
+  .confirm-sheet .confirm-icon .gicon{ font-size:16px; }
+  .confirm-sheet h3{ text-align:center; font-family:"Bricolage Grotesque", sans-serif; font-size:19px; letter-spacing:-.02em; }
+  .confirm-sheet .body{ text-align:center; font-size:12.5px; line-height:1.5; }
+  .confirm-sheet .btns{ gap:10px; margin-top:18px; }
+  .confirm-sheet .btn{ padding:13px 10px; border-radius:15px; font-size:14px; }
+  .confirm-sheet .btn + .btn{ margin-left:0; }
+  .confirm-sheet .btn.danger{ background:linear-gradient(180deg, rgba(255,69,58,.23), rgba(255,69,58,.13)); border-color:rgba(255,69,58,.52); }
+
+  /* ---- toast ---- */
+  .toast{
+    position: fixed; left:50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
+    transform: translateX(-50%) translateY(20px);
+    z-index: 60; display:flex; width:fit-content; max-width:calc(100vw - 24px);
+    min-width:0; align-items:center; justify-content:center; gap:8px;
+    padding: 8px 12px; border-radius: 999px;
+    --toast-accent: var(--dokke-orange);
+    --toast-ring: rgba(240,135,55,.16);
+    background:rgba(37,18,11,.9);
+    border:1px solid rgba(255,255,255,.12);
+    box-shadow: 0 8px 24px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.1);
+    backdrop-filter: blur(18px) saturate(130%);
+    -webkit-backdrop-filter: blur(18px) saturate(130%);
+    color: var(--ink); font-size: 12px; font-weight: 600;
+    line-height: 1.15; text-align:center; white-space:nowrap;
+    overflow:hidden; text-overflow:ellipsis;
+    opacity: 0; pointer-events: none; transition: opacity .18s ease, transform .18s ease;
+  }
+  .toast::before{
+    content:""; flex:0 0 6px; width:6px; height:6px; border-radius:50%;
+    background:var(--toast-accent); box-shadow:none;
+  }
+  .toast.show{ opacity: 1; transform: translateX(-50%) translateY(0); }
+  .toast.ok{
+    --toast-accent: var(--green);
+    --toast-ring: rgba(48,209,88,.16);
+    border-color: rgba(48,209,88,.28);
+  }
+  .toast.sync{
+    --toast-accent: var(--amber);
+    --toast-ring: rgba(255,214,10,.15);
+    border-color: rgba(255,214,10,.26);
+  }
+  .toast.err{
+    --toast-accent: var(--red);
+    --toast-ring: rgba(255,69,58,.16);
+    border-color: rgba(255,69,58,.38); color:#ffb3ae;
+  }
+
+  .connection-scrim{
+    position:fixed; inset:0; z-index:110; display:none;
+    align-items:center; justify-content:center; padding:24px;
+    background:rgba(8,3,1,.68);
+    backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
+  }
+  body.is-disconnected .connection-scrim{ display:flex; }
+  .connection-card{
+    width:100%; max-width:360px; padding:26px 22px; border-radius:26px;
+    text-align:center; background:linear-gradient(165deg, rgba(255,255,255,.14), rgba(255,255,255,.05));
+    border:1px solid rgba(240,135,55,.3);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.18), 0 24px 60px rgba(0,0,0,.48);
+  }
+  .connection-icon{
+    width:48px; height:48px; margin:0 auto 14px; border-radius:16px;
+    display:grid; place-items:center; background:rgba(240,135,55,.14);
+    border:1px solid rgba(240,135,55,.28); color:#ffbd83; font-size:22px; font-weight:700;
+  }
+  .connection-card h2{ font-family:"Bricolage Grotesque",sans-serif; font-size:21px; letter-spacing:-.025em; }
+  .connection-card p{ margin-top:8px; color:var(--ink-2); font-size:13px; line-height:1.5; }
+  .connection-retry{
+    width:100%; min-height:46px; margin-top:20px; border:0; border-radius:14px;
+    background:linear-gradient(180deg, #2995ff, #0877e8); color:#fff;
+    font:600 14px "Inter",sans-serif; cursor:pointer;
+  }
+  .connection-retry:disabled{ opacity:.65; cursor:wait; }
+
+  /* ---- aviso de atualização ---- */
+  .up-banner{
+    position: fixed; top: calc(env(safe-area-inset-top, 0px) + 10px); left: 12px; right: 12px;
+    z-index: 120; display:flex; align-items:center; gap: 10px;
+    padding: 12px 14px; border-radius: 18px;
+    background: linear-gradient(165deg, rgba(255,255,255,.14), rgba(255,255,255,.05));
+    border:1px solid rgba(255,255,255,.18);
+    backdrop-filter: blur(18px) saturate(150%); -webkit-backdrop-filter: blur(18px) saturate(150%);
+    box-shadow: 0 14px 40px rgba(0,0,0,.45);
+    color: var(--ink); font-size: 13px; font-weight: 600;
+    opacity:0; pointer-events:none; transform: translateY(-14px);
+    transition: opacity .25s ease, transform .25s ease;
+  }
+  .up-banner.show{ opacity:1; pointer-events:auto; transform: translateY(0); }
+  .up-banner .up-icon{ flex:0 0 auto; width: 30px; height:30px; border-radius:9px;
+    display:flex; align-items:center; justify-content:center;
+    background: rgba(255,214,10,.16); color:#ffd70a; font-weight:800; font-size:15px; }
+  .up-banner .up-txt{ flex:1; min-width:0; }
+  .up-banner .up-txt b{ display:block; font-size:13.5px; }
+  .up-banner .up-txt span{ display:block; color:var(--ink-2); font-weight:500; font-size:12px; }
+  .up-banner .up-actions{ flex:0 0 auto; display:flex; align-items:center; gap:6px; }
+  .up-banner .up-download{ height:30px; padding:0 10px; border-radius:10px; border:1px solid rgba(255,255,255,.2);
+    background:rgba(10,132,255,.82); color:#fff; font-size:11.5px; font-weight:700; cursor:pointer; white-space:nowrap; }
+  .up-banner .up-download:active{ background:rgba(10,132,255,1); }
+  .up-banner .up-x{ flex:0 0 auto; width:26px; height:26px; border-radius:8px; border:0; cursor:pointer;
+    background: rgba(255,255,255,.1); color:var(--ink-2); font-size:14px; }
+  .up-banner .up-x:active{ background: rgba(255,255,255,.2); }
+  @media (max-width:380px){
+    .up-banner{ gap:7px; padding:10px; }
+    .up-banner .up-icon{ width:27px; height:27px; }
+    .up-banner .up-download{ padding:0 8px; font-size:11px; }
+  }
+
+  /* ---- login wall (pin de acesso) — líquido/glass ---- */
+  .login-scrim{
+    position: fixed; top:0; left:0; right:0; bottom:0; z-index:90;
+    display:flex; align-items:center; justify-content:center;
+    padding: 24px 18px;
+    background: rgba(3,6,14,.34);
+    backdrop-filter: blur(20px) saturate(150%); -webkit-backdrop-filter: blur(20px) saturate(150%);
+    opacity:0; pointer-events:none; transition: opacity .2s ease;
+    overflow-y:auto;
+  }
+  .login-scrim.show{ opacity:1; pointer-events:auto; }
+  .login-card{
+    width: min(360px, 100%); border-radius: 32px; padding: 24px 20px 18px;
+    background: linear-gradient(165deg, rgba(255,255,255,.18), rgba(255,255,255,.07) 55%, rgba(255,255,255,.12));
+    border:1px solid rgba(255,255,255,.16);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.22), inset 0 -1px 0 rgba(0,0,0,.28), 0 24px 60px rgba(0,0,0,.5);
+    text-align:center; animation: rise .18s ease;
+  }
+  .login-card .lkey{ width:62px; height:62px; margin:0 auto 14px; border-radius:20px;
+    padding:0;
+    background: transparent;
+    border:0;
+    box-shadow:none;
+    display:flex; align-items:center; justify-content:center; }
+  .login-card .lkey img{ width:100%; height:100%; border-radius:17px; object-fit:cover; display:block; }
+  .login-card h3{ font-size:19px; font-weight:700; margin-bottom:4px; letter-spacing:-.01em; }
+  .login-card .body{ font-size:13px; color:var(--ink-2); line-height:1.5; }
+  .login-card .lsteps{ list-style:none; margin:16px 0 18px; padding:0; text-align:left; }
+  .login-card .lsteps li{ display:flex; align-items:flex-start; gap:11px; padding:6px 0; }
+  .login-card .lsteps .lnum{ flex:0 0 auto; width:20px; height:20px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center; margin-top:1px;
+    font-size:11px; font-weight:700; color:var(--ink-2);
+    background: rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.14); }
+  .login-card .lsteps p{ font-size:12.6px; color:var(--ink-2); line-height:1.45; }
+  .login-card .lsteps b{ color:var(--ink); font-weight:600; }
+  .login-card input{
+    width:100%; padding:15px; border-radius:16px; text-align:center;
+    font-size:26px; font-weight:700; letter-spacing:12px; color:var(--ink);
+    font-variant-numeric: tabular-nums;
+    background: rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.14);
+    outline:none; caret-color: var(--accent, #0a84ff);
+  }
+  .login-card input:focus{ border-color: rgba(10,132,255,.65); background: rgba(10,132,255,.06); box-shadow: 0 0 0 4px rgba(10,132,255,.14); }
+  .login-card .lerr{ font-size:12px; color:#ff837d; font-weight:600; margin-top:10px; min-height:16px; }
+  .login-card .btn.connect{ margin-top:16px; flex:1; padding:15px; border-radius:18px; cursor:pointer;
+    font-size:16px; font-weight:700; color:#fff;
+    background: linear-gradient(180deg, rgba(10,132,255,.96), rgba(10,132,255,.72));
+    border:1px solid rgba(255,255,255,.22);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.32), 0 12px 26px rgba(10,132,255,.32);
+    transition: transform .08s ease, opacity .15s ease; }
+  .login-card .btn.connect:active{ transform: scale(.975); opacity:.9; }
+  .login-card .lfoot{ margin-top:16px; font-size:11px; color:var(--ink-3); letter-spacing:.02em; }
+
+  /* Apple pass: menos ornamento, mais estado e ação legíveis. */
+  :focus-visible{
+    outline: 3px solid rgba(10,132,255,.92);
+    outline-offset: 3px;
+  }
+  button:focus-visible, [role="button"]:focus-visible{
+    box-shadow: 0 0 0 4px rgba(10,132,255,.22);
+  }
+  .bg{
+    background: linear-gradient(180deg, #241106 0%, #150a06 56%, #080301 100%);
+  }
+  .aglass{
+    background: rgba(255,255,255,.07);
+    border: 1px solid rgba(255,255,255,.08);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.16), 0 6px 14px rgba(0,0,0,.22);
+  }
+  .aglass::before{ background: linear-gradient(160deg, rgba(255,255,255,.12), transparent 48%); }
+  .atile.empty .aglass{
+    background: rgba(255,255,255,.05);
+    border-color: rgba(255,255,255,.08);
+    box-shadow: none;
+  }
+  .robscard{
+    background: linear-gradient(145deg, rgba(255,255,255,.08), rgba(255,255,255,.035) 58%, rgba(74,27,12,.18));
+    border-color: rgba(255,255,255,.12);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 10px 22px rgba(0,0,0,.10);
+  }
+  .login-help{
+    margin: 16px 0 18px;
+    border: 1px solid rgba(255,255,255,.14);
+    border-radius: 14px;
+    background: rgba(255,255,255,.045);
+    text-align: left;
+  }
+  .login-help summary{
+    display: flex;
+    min-height: 44px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 14px;
+    color: var(--ink);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 700;
+    list-style: none;
+  }
+  .login-help summary::-webkit-details-marker{ display: none; }
+  .login-help summary::after{ content: "+"; color: var(--ink-2); font-size: 18px; font-weight: 400; }
+  .login-help[open] summary::after{ content: "−"; }
+  .login-card .login-help .lsteps{
+    margin: 0;
+    padding: 0 14px 12px;
+  }
+  .login-card .body, .login-card .lfoot{ font-size: 12px; }
+  .vdots .d{
+    display: grid;
+    width: 44px;
+    height: 44px;
+    margin: 0;
+    padding: 0;
+    place-items: center;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+  }
+  .vdots .d::before{
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    transform: translate(16px, var(--vdot-y, 0px));
+    background: rgba(255,255,255,.35);
+    transition: width .2s ease, height .2s ease, background-color .2s ease;
+  }
+  .vdots .d.on{
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: transparent;
+  }
+  .vdots .d.on::before{
+    width: 6px;
+    height: 14px;
+    border-radius: 3px;
+    background: rgba(255,255,255,.92);
+  }
+  @media (prefers-reduced-motion: reduce){
+    *, *::before, *::after{
+      animation-duration: .001ms !important;
+      animation-iteration-count: 1 !important;
+      scroll-behavior: auto !important;
+      transition-duration: .001ms !important;
+    }
+  }
+
+</style>
+</head>
+<body id="dokke">
+  <div class="bg"></div>
+
+  <main>
+  <div class="screens" id="screens">
+    <section class="screen" id="screenApps">
+      <div class="stage">
+        <div class="launchpadwrap">
+          <div class="launchpad" id="launchpad"><div class="launchpad-track" id="launchpadTrack"></div></div>
+          <div class="dots" id="dots"></div>
+        </div>
+      </div>
+    </section>
+    <section class="screen" id="screenRecents"></section>
+  </div>
+</main>
+
+<div class="vdots" id="vdots"></div>
+
+<div class="toast" id="toast"></div>
+
+  <div class="connection-scrim" id="connectionScrim">
+  <section class="connection-card" id="connectionCard" role="dialog" aria-modal="true" aria-live="polite" tabindex="-1" aria-labelledby="connectionTitle" aria-describedby="connectionDescription">
+    <div class="connection-icon" aria-hidden="true">!</div>
+    <h2 id="connectionTitle">Não foi possível conectar ao PC</h2>
+    <p id="connectionDescription">Abra o Dokke no PC e confira se os dois estão na mesma rede Wi-Fi.</p>
+    <button class="connection-retry" id="connectionRetry" data-i18n="connection.retry">Tentar novamente</button>
+  </section>
+</div>
+
+  <div class="login-scrim" id="loginScrim">
+    <div class="login-card" role="dialog" aria-modal="true" aria-labelledby="loginTitle" aria-describedby="loginDescription">
+      <div class="lkey" aria-hidden="true">
+        <img src="/icon-192.png" alt="" aria-hidden="true" width="54" height="54">
+      </div>
+      <h3 id="loginTitle" data-i18n="login.title">Conectar ao Dokke</h3>
+      <div class="body" id="loginDescription" data-i18n="login.description">Conecte o aparelho ao seu PC para abrir os apps.</div>
+      <details class="login-help">
+        <summary data-i18n="login.help">Como conectar?</summary>
+        <ol class="lsteps">
+          <li><span class="lnum">1</span><div><p><span data-i18n="login.step1Prefix">Conecte o PC e este aparelho à</span> <b data-i18n="login.sameNetwork">mesma rede Wi-Fi</b>.</p></div></li>
+          <li><span class="lnum">2</span><div><p><span data-i18n="login.step2Prefix">No PC, abra o</span> <b>Dokke</b> <span data-i18n="login.step2Suffix">e escolha os apps que quer usar.</span></p></div></li>
+          <li><span class="lnum">3</span><div><p><span data-i18n="login.step3Prefix">Toque em</span> <b data-i18n="login.generateCode">Gerar novo código</b> <span data-i18n="login.step3Suffix">no PC e digite o código de 4 dígitos aqui.</span></p></div></li>
+        </ol>
+      </details>
+      <input id="loginPin" inputmode="numeric" autocomplete="one-time-code" maxlength="4" placeholder="••••" aria-label="Código de acesso" data-i18n-aria-label="login.pinLabel">
+      <div class="lerr" id="loginErr" role="status" aria-live="polite"></div>
+      <button class="btn connect" id="loginGo" data-i18n="login.connect">Conectar</button>
+      <p class="lfoot" data-i18n="footer.brand">Dokke by Felipe Natanael</p>
+    </div>
+  </div>
+
+  <div class="scrim" id="scrim">
+    <div class="sheet" id="sheet"></div>
+  </div>
+
+  <div class="up-banner" id="upBanner">
+    <div class="up-icon">!</div>
+    <div class="up-txt">
+      <b id="upTitle"></b>
+      <span id="upSub"></span>
+    </div>
+    <div class="up-actions">
+      <button class="up-download" id="upDownload">Baixar</button>
+      <button class="up-x" id="upX" aria-label="Fechar aviso" data-i18n-aria-label="aria.close">✕</button>
+    </div>
+  </div>
+
+  <aside class="drawer" id="drawer">
+    <div class="drawer-head">
+      <h2 data-i18n="obs.title">OBS Commander</h2>
+      <button class="drawer-close" id="drawerClose" aria-label="Fechar" data-i18n-aria-label="aria.close">✕</button>
+    </div>
+    <div class="drawer-body" id="obspanel"></div>
+  </aside>
+
+<script>
+(() => {
+  "use strict";
+
+  try {
+    const S = p => { try { return CSS.supports(...p); } catch { return false; } };
+    fetch("/api/probe?ua=" + encodeURIComponent(navigator.userAgent)
+      + "&grid=" + S(["display", "grid"]) + "&gap=" + S(["gap", "1px"])
+      + "&min=" + S(["width", "min(1px, 2px)"]) + "&clamp=" + S(["width", "clamp(1px, 2px, 3px)"])
+      + "&cqi=" + S(["width", "1cqi"]) + "&dvh=" + S(["height", "100dvh"])
+      + "&flex=" + S(["display", "flex"])
+      + "&so=" + (screen.orientation ? screen.orientation.angle + ":" + screen.orientation.type : "none")
+      + "&wo=" + (typeof window.orientation === "number" ? window.orientation : "none")
+      + "&doe=" + (typeof DeviceOrientationEvent !== "undefined"), { mode: "no-cors" }).catch(() => {});
+  } catch {}
+
+  const $ = id => document.getElementById(id);
+
+  /* Só o PWA standalone deve trocar a régua estrutural pela visual viewport.
+     No Safari aberto como navegador, a barra inferior faz parte da régua
+     original do layout e não deve comprimir os cards. */
+  const DOKKE_STANDALONE = (typeof window.matchMedia === "function" && window.matchMedia("(display-mode: standalone)").matches)
+    || window.navigator.standalone === true;
+  document.body.classList.toggle("is-browser", !DOKKE_STANDALONE);
+  function syncDokkeViewport(){
+    if (!DOKKE_STANDALONE) return;
+    const visualViewport = window.visualViewport;
+    const height = visualViewport && Number.isFinite(visualViewport.height)
+      ? visualViewport.height
+      : window.innerHeight;
+    if (!Number.isFinite(height) || height <= 0) return;
+    document.documentElement.style.setProperty("--dokke-viewport-height", `${Math.round(height)}px`);
+  }
+  if (DOKKE_STANDALONE){
+    syncDokkeViewport();
+    window.addEventListener("resize", syncDokkeViewport, { passive: true });
+    if (window.visualViewport){
+      window.visualViewport.addEventListener("resize", syncDokkeViewport, { passive: true });
+      window.visualViewport.addEventListener("scroll", syncDokkeViewport, { passive: true });
+    }
+  }
+
+  function blockNativeSurfaceAction(event){
+    event.preventDefault();
+  }
+  document.addEventListener("selectstart", blockNativeSurfaceAction, { capture: true, passive: false });
+  document.addEventListener("contextmenu", blockNativeSurfaceAction, { capture: true, passive: false });
+  document.addEventListener("dragstart", blockNativeSurfaceAction, { capture: true, passive: false });
+
+  const I18N = {
+    "pt-BR": {
+      "aria.language": "Idioma", "aria.selectLanguage": "Selecionar idioma", "aria.close": "Fechar",
+      "screen.apps": "Apps", "screen.recents": "Abertos",
+      "login.title": "Conectar ao Dokke", "login.description": "Conecte o aparelho ao seu PC para abrir os apps.", "login.help": "Como conectar?",
+      "login.step1Prefix": "Conecte o PC e este aparelho à", "login.sameNetwork": "mesma rede Wi-Fi",
+      "login.step2Prefix": "No PC, abra o", "login.step2Suffix": "e escolha os apps que quer usar.",
+      "login.step3Prefix": "Toque em", "login.generateCode": "Gerar novo código", "login.step3Suffix": "no PC e digite o código de 4 dígitos aqui.",
+      "login.pinLabel": "Código de acesso", "login.connect": "Conectar", "login.invalidCode": "Código inválido",
+      "login.tooMany": "Muitas tentativas — aguarde um pouco.", "login.wrongCode": "Código errado.",
+      "dock.openApps": "Apps abertos", "dock.apps": "Apps", "dock.pinned": "Favoritos", "dock.tapToOpen": "Toque em um app para abrir",
+      "recents.title": "Apps abertos", "recents.empty": "Nada aberto ainda — abra um app no PC para ele aparecer aqui",
+      "modal.pinTitle": "Fixar apps como favoritos",
+      "dock.opened": "aberto", "dock.noOpenApps": "Nada aberto ainda — abra um app no PC para ele aparecer aqui",
+      "dock.pinApps": "Fixar apps como favoritos", "dock.pinSubtitle": "Escolha os apps que aparecem no Launchpad.",
+      "dock.pinnedLabel": "fixado", "dock.limit": "limite", "dock.pin": "+ fixar", "dock.close": "Fechar",
+      "modal.removeWebsite": "Remover website dos favoritos?", "modal.removeShortcut": "Remover atalho dos favoritos?", "modal.removeApp": "Remover dos favoritos?",
+      "modal.removeWebsiteBody": "\"{name}\" sai dos fixos.",
+      "modal.removeShortcutBody": "\"{name}\" sai dos fixos.",
+      "modal.removeAppBody": "\"{name}\" sai dos fixos. O app continua no Launchpad.",
+      "modal.cancel": "Cancelar", "modal.removeConfirm": "Remover", "modal.stopAllTitle": "Encerrar transmissão?",
+      "modal.stopAllBody": "O OBS vai parar a gravação e a live.", "modal.stopAll": "Encerrar tudo",
+      "toast.macDisconnected": "Desconectado", "toast.deviceConnected": "Conectado",
+      "connection.offlineTitle": "Não foi possível conectar ao PC",
+      "connection.offlineDescription": "Abra o Dokke no PC e confira se os dois estão na mesma rede Wi-Fi.",
+      "connection.loadFailedTitle": "Não foi possível carregar o Dokke",
+      "connection.loadFailedDescription": "Confira a conexão com o PC e tente novamente.",
+      "connection.retry": "Tentar novamente", "connection.retrying": "Reconectando…",
+      "toast.pinAdded": "\"{name}\" adicionado aos favoritos", "toast.removed": "\"{name}\" removido",
+      "toast.pinFailed": "Falha ao fixar", "toast.openFailed": "Não consegui abrir \"{name}\"",
+      "toast.removeFailed": "Falha ao remover", "toast.dockChanged": "O dock mudou; tente novamente",
+      "toast.pinnedLimit": "Limite de {pages} páginas atingido", "toast.obsOffline": "Offline",
+      "toast.obsCommandFailed": "Comando OBS falhou", "toast.updated": "Atualizando",
+      "error.PINNED_LIMIT_REACHED": "Limite de {pages} páginas atingido",
+      "error.REVISION_CONFLICT": "O dock mudou; tente novamente",
+      "error.MIXED_PIECES_REQUIRES_NEW_CLIENT": "Essa configuração exige um cliente atualizado",
+      "error.INVALID_PIECE_POSITION": "Posição inválida",
+      "error.PIECE_SLOT_OCCUPIED": "Essa posição do dock já está ocupada",
+      "error.INVALID_WEBSITE": "Website inválido",
+      "error.PIECE_NOT_WEBSITE": "Essa peça não é um website",
+      "error.PIECE_NOT_FOUND": "Peça não encontrada",
+      "error.INVALID_REQUEST": "Solicitação inválida",
+      "error.SHORTCUT_ALREADY_RUNNING": "Este atalho já está em execução no PC.",
+      "error.APP_NOT_FOUND": "App não encontrado neste PC.", "error.FOCUS_FAILED": "Não foi possível trazer o app para frente.", "error.PLATFORM_UNSUPPORTED": "Este sistema não é compatível com essa ação.",
+      "error.HTTPS_REQUIRED": "Para executar atalhos fora da rede local, acesse o Dokke por HTTPS.",
+      "obs.title": "OBS Commander", "obs.offline": "OBS offline — abra o OBS para liberar as cenas",
+      "obs.unavailable": "OBS indisponível — verifique o WebSocket", "obs.live": "AO VIVO", "obs.connected": "conectado",
+      "obs.startRecording": "Gravar", "obs.stopRecording": "Parar", "obs.startLive": "Live", "obs.stopLive": "Parar live", "obs.stopAll": "Encerrar",
+      "obs.accessibility": "OBS, {status}",
+      "update.available": "Nova atualização do Dokke", "update.version": "Versão {version} disponível. Escolha quando baixar.",
+      "update.download": "Baixar", "update.reload": "Recarregar", "update.release": "Abrir release", "update.macTitle": "App do PC desatualizado",
+      "update.macSubtitle": "Nova versão {version} disponível — atualize o Dokke no computador",
+      "update.close": "Fechar aviso", "site": "site", "footer.brand": "Dokke by Felipe Natanael"
+    },
+    en: {
+      "aria.language": "Language", "aria.selectLanguage": "Select language", "aria.close": "Close",
+      "screen.apps": "Apps", "screen.recents": "Open apps",
+      "login.title": "Connect to Dokke", "login.description": "Connect this device to your PC to open apps.", "login.help": "How to connect?",
+      "login.step1Prefix": "Connect your PC and this device to the", "login.sameNetwork": "same Wi-Fi network",
+      "login.step2Prefix": "On your PC, open", "login.step2Suffix": "and choose the apps you want to use.",
+      "login.step3Prefix": "Tap", "login.generateCode": "Generate new code", "login.step3Suffix": "on your PC and enter the 4-digit code here.",
+      "login.pinLabel": "Access code", "login.connect": "Connect", "login.invalidCode": "Invalid code",
+      "login.tooMany": "Too many attempts — please wait a moment.", "login.wrongCode": "Wrong code.",
+      "dock.openApps": "Open apps", "dock.apps": "Apps", "dock.pinned": "Favorites", "dock.tapToOpen": "Tap an app to open it",
+      "recents.title": "Open apps", "recents.empty": "Nothing open yet — open an app on your PC to see it here",
+      "modal.pinTitle": "Pin apps as favorites",
+      "dock.opened": "open", "dock.noOpenApps": "Nothing open yet — open an app on your PC to see it here",
+      "dock.pinApps": "Pin apps as favorites", "dock.pinSubtitle": "Choose the apps that appear in Launchpad.",
+      "dock.pinnedLabel": "pinned", "dock.limit": "limit", "dock.pin": "+ pin", "dock.close": "Close",
+      "modal.removeWebsite": "Remove website from favorites?", "modal.removeShortcut": "Remove shortcut from favorites?", "modal.removeApp": "Remove from favorites?",
+      "modal.removeWebsiteBody": "\"{name}\" will be unpinned.",
+      "modal.removeShortcutBody": "\"{name}\" will be unpinned.",
+      "modal.removeAppBody": "\"{name}\" will be unpinned. The app stays in Launchpad.",
+      "modal.cancel": "Cancel", "modal.removeConfirm": "Remove", "modal.stopAllTitle": "Stop broadcast?",
+      "modal.stopAllBody": "OBS will stop recording and the live stream.", "modal.stopAll": "Stop everything",
+      "toast.macDisconnected": "Disconnected", "toast.deviceConnected": "Connected",
+      "connection.offlineTitle": "Couldn't connect to the PC",
+      "connection.offlineDescription": "Open Dokke on the PC and check that both devices are on the same Wi-Fi network.",
+      "connection.loadFailedTitle": "Couldn't load Dokke",
+      "connection.loadFailedDescription": "Check the connection to the PC and try again.",
+      "connection.retry": "Try again", "connection.retrying": "Reconnecting…",
+      "toast.pinAdded": "\"{name}\" added to favorites", "toast.removed": "\"{name}\" removed",
+      "toast.pinFailed": "Failed to pin", "toast.openFailed": "Could not open \"{name}\"",
+      "toast.removeFailed": "Failed to remove", "toast.dockChanged": "The dock changed; try again",
+      "toast.pinnedLimit": "Limit of {pages} pages reached", "toast.obsOffline": "Offline",
+      "toast.obsCommandFailed": "OBS command failed", "toast.updated": "Updating",
+      "error.PINNED_LIMIT_REACHED": "Limit of {pages} pages reached",
+      "error.REVISION_CONFLICT": "The dock changed; try again",
+      "error.MIXED_PIECES_REQUIRES_NEW_CLIENT": "This configuration requires an updated client",
+      "error.INVALID_PIECE_POSITION": "Invalid position",
+      "error.PIECE_SLOT_OCCUPIED": "That dock position is already occupied",
+      "error.INVALID_WEBSITE": "Invalid website",
+      "error.PIECE_NOT_WEBSITE": "This piece is not a website",
+      "error.PIECE_NOT_FOUND": "Piece not found",
+      "error.INVALID_REQUEST": "Invalid request",
+      "error.SHORTCUT_ALREADY_RUNNING": "This shortcut is already running on the PC.",
+      "error.APP_NOT_FOUND": "App not found on this PC.", "error.FOCUS_FAILED": "Couldn't bring the app to the front.", "error.PLATFORM_UNSUPPORTED": "This system doesn't support that action.",
+      "error.HTTPS_REQUIRED": "To run shortcuts outside the local network, open Dokke over HTTPS.",
+      "obs.title": "OBS Commander", "obs.offline": "OBS offline — open OBS to enable scenes",
+      "obs.unavailable": "OBS unavailable — check the WebSocket", "obs.live": "LIVE", "obs.connected": "connected",
+      "obs.startRecording": "Record", "obs.stopRecording": "Stop", "obs.startLive": "Live", "obs.stopLive": "Stop live", "obs.stopAll": "Stop",
+      "obs.accessibility": "OBS, {status}",
+      "update.available": "New Dokke update", "update.version": "Version {version} is available. Choose when to download it.",
+      "update.download": "Download", "update.reload": "Reload", "update.release": "Open release", "update.macTitle": "PC app is out of date",
+      "update.macSubtitle": "Version {version} is available — update Dokke on your computer",
+      "update.close": "Close notice", "site": "site", "footer.brand": "Dokke by Felipe Natanael"
+    }
+  };
+  function detectLanguage(language = navigator.language){
+    if (typeof language !== "string" || !language.trim()) return "pt-BR";
+    return language.toLowerCase().startsWith("pt") ? "pt-BR" : "en";
+  }
+  function getInitialLanguage(){
+    let browserLanguage = null;
+    try { browserLanguage = typeof navigator !== "undefined" ? navigator.language : null; } catch (e) {}
+    return detectLanguage(browserLanguage);
+  }
+  let currentLanguage = getInitialLanguage();
+  function t(key, values = {}){
+    const template = (I18N[currentLanguage] && I18N[currentLanguage][key]) || I18N["pt-BR"][key] || key;
+    return Object.entries(values).reduce(function(text, entry){
+      return text.split("{" + entry[0] + "}").join(String(entry[1]));
+    }, template);
+  }
+  function renderLanguage(){
+    document.documentElement.lang = currentLanguage;
+    document.querySelectorAll("[data-i18n]").forEach(function(element){
+      element.textContent = t(element.dataset.i18n);
+    });
+    document.querySelectorAll("[data-i18n-aria-label]").forEach(function(element){
+      element.setAttribute("aria-label", t(element.dataset.i18nAriaLabel));
+    });
+    document.querySelectorAll("[data-i18n-placeholder]").forEach(function(element){
+      element.setAttribute("placeholder", t(element.dataset.i18nPlaceholder));
+    });
+  }
+  renderLanguage();
+
+  const PALETTE = [
+    ["#0a84ff","#5e5ce6"], ["#ff375f","#ff9f0a"], ["#30d158","#0a84ff"],
+    ["#bf5af2","#ff375f"], ["#ff9f0a","#ff453a"], ["#64d2ff","#0a84ff"],
+    ["#ffd60a","#ff9f0a"], ["#32d74b","#64d2ff"],
+  ];
+  function appGrad(name){
+    let h = 0;
+    for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+    const [a, b] = PALETTE[h % PALETTE.length];
+    return "linear-gradient(135deg, " + a + "cc, " + b + "b3)";
+  }
+  function mono(name){
+    const w = name.trim().split(/\s+/);
+    if (w.length > 1) return (w[0][0] + w[1][0]).toUpperCase();
+    return name.trim().slice(0, 2).toUpperCase() || "?";
+  }
+  function giconEl(name){
+    const s = document.createElement("span");
+    s.className = "gicon";
+    s.style.background = appGrad(name);
+    s.textContent = mono(name);
+    return s;
+  }
+
+  let toastT = null;
+  function toast(msg, kind){
+    kind = kind || "";
+    const t = $("toast");
+    t.textContent = msg;
+    t.className = "toast show" + (kind ? " " + kind : "");
+    clearTimeout(toastT);
+    toastT = setTimeout(function(){ t.classList.remove("show"); }, 2500);
+  }
+
+  // ---------- login wall (pin de acesso) ----------
+  let authed = false, loginOpen = false, loginSubmitting = false;
+  // Pareamento por QR: o host coloca o PIN no fragmento (#pin=1234). O fragmento
+  // não é enviado ao servidor e é removido da barra de endereço na hora.
+  let pendingPin = null;
+  (function(){
+    var m = /^#pin=(\d{4})$/.exec(location.hash || "");
+    if (!m) return;
+    pendingPin = m[1];
+    try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {}
+  })();
+  let loginPreviousFocus = null;
+  let connectionNoticeVisible = false, connectionPreviousFocus = null;
+  function isRestorableFocusTarget(element){
+    if (!element || !element.isConnected || element === document.body || typeof element.focus !== "function") return false;
+    const connectionScrim = $("connectionScrim");
+    const loginScrim = $("loginScrim");
+    if ((connectionScrim && connectionScrim.contains(element)) || (loginScrim && loginScrim.contains(element))) return false;
+    return element.getClientRects().length > 0;
+  }
+  function focusConnectionNotice(){
+    const retry = $("connectionRetry");
+    const target = retry && !retry.disabled ? retry : $("connectionCard");
+    if (target && typeof target.focus === "function") target.focus({ preventScroll: true });
+  }
+  function restoreConnectionFocus(element){
+    let target = isRestorableFocusTarget(element) ? element : null;
+    if (!target && element && element.classList && element.classList.contains("atile")){
+      const id = element.dataset.id;
+      const name = element.dataset.name;
+      target = Array.from(document.querySelectorAll(".atile")).find(function(candidate){
+        return (id && candidate.dataset.id === id) || (!id && name && candidate.dataset.name === name);
+      }) || null;
+    }
+    if (isRestorableFocusTarget(target)) target.focus();
+  }
+  function syncLoginViewport(){
+    const scrim = $("loginScrim");
+    const vv = window.visualViewport;
+    if (!scrim || !loginOpen || !vv || vv.height >= window.innerHeight - 80){
+      if (scrim){
+        scrim.style.top = "";
+        scrim.style.bottom = "";
+        scrim.style.height = "";
+      }
+      return;
+    }
+    // Android WebView mantém o layout viewport alto e reduz só o visual viewport
+    // quando o teclado abre. Sem este recuo o card fica centrado atrás do IME.
+    const top = Number.isFinite(vv.offsetTop) ? Math.max(0, vv.offsetTop) : 0;
+    scrim.style.top = top + "px";
+    scrim.style.bottom = "auto";
+    scrim.style.height = Math.max(0, vv.height) + "px";
+  }
+  if (window.visualViewport){
+    window.visualViewport.addEventListener("resize", syncLoginViewport);
+    window.visualViewport.addEventListener("scroll", syncLoginViewport);
+  }
+  function syncLoginOrientation(){
+    const android = window.DokkeAndroid;
+    if (!android || typeof android.setLoginPortrait !== "function") return;
+    try { android.setLoginPortrait(loginOpen); } catch (e) {}
+  }
+  function showLogin(){
+    if (loginOpen) return;
+    loginPreviousFocus = document.activeElement;
+    loginOpen = true;
+    const err = $("loginErr"); if (err) err.textContent = "";
+    const pin = $("loginPin"); if (pin){ pin.value = ""; }
+    $("loginScrim").classList.add("show");
+    document.body.classList.add("is-login");
+    syncLoginOrientation();
+    syncLoginViewport();
+    renderConnectionNotice();
+    if (pin) setTimeout(function(){ if (loginOpen && pin.isConnected) pin.focus(); }, 80);
+    if (pendingPin && pin){ pin.value = pendingPin; pendingPin = null; setTimeout(doLogin, 0); }
+  }
+  function hideLogin(){
+    const previousFocus = loginPreviousFocus;
+    loginPreviousFocus = null;
+    loginOpen = false;
+    $("loginScrim").classList.remove("show");
+    document.body.classList.remove("is-login");
+    syncLoginOrientation();
+    renderConnectionNotice();
+    if (connectionNoticeVisible){
+      if (!connectionPreviousFocus && isRestorableFocusTarget(previousFocus)) connectionPreviousFocus = previousFocus;
+    } else if (isRestorableFocusTarget(previousFocus)){
+      previousFocus.focus();
+    }
+  }
+  function loginError(msg){
+    const err = $("loginErr");
+    if (err) err.textContent = msg || t("login.invalidCode");
+  }
+  async function doLogin(){
+    if (loginSubmitting) return;
+    const pin = $("loginPin");
+    const val = (pin && pin.value || "").trim();
+    if (loginOpen === false) return;
+    if (!/^\d{4}$/.test(val)){ loginError(t("login.invalidCode")); return; }
+    loginSubmitting = true;
+    try {
+      const r = await post("/api/auth", { pin: val }).catch(function(){ return { status: 0, data: null }; });
+      if (r && r.status === 200 && r.data && r.data.ok === true){
+        authed = true;
+        // tira o foco do input pra o teclado recuar (mobile/WebView)
+        const active = document.activeElement;
+        if (active && active.blur) active.blur();
+        try { if (window.DokkeAndroid) window.DokkeAndroid.hideKeyboard(); } catch (e) {}
+        hideLogin();
+        boot();
+      } else if (r && r.status === 429){
+        loginError(t("login.tooMany"));
+      } else {
+        loginError(t("login.wrongCode"));
+      }
+    } finally {
+      loginSubmitting = false;
+    }
+  }
+  const loginScrim = $("loginScrim");
+  if (loginScrim){
+    loginScrim.addEventListener("keydown", function(event){
+      if (!loginOpen || event.key !== "Tab") return;
+      const focusable = Array.from(loginScrim.querySelectorAll("button, input, summary, [href], select, textarea, [tabindex]:not([tabindex='-1'])"))
+        .filter(function(element){ return !element.disabled && element.getClientRects().length > 0; });
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first){
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last){
+        event.preventDefault();
+        first.focus();
+      }
+    });
+  }
+  $("loginGo").addEventListener("click", doLogin);
+  $("loginPin").addEventListener("input", function(){
+    const input = $("loginPin");
+    const normalized = (input.value || "").replace(/\D/g, "").slice(0, 4);
+    if (input.value !== normalized) input.value = normalized;
+    if (normalized.length === 4) doLogin();
+  });
+  $("loginPin").addEventListener("keydown", function(e){
+    if (e.key === "Enter") doLogin();
+    else if (!/^\d$/.test(e.key) && e.key.length === 1) e.preventDefault();
+  });
+
+  // ---------- landscape detection ----------
+  let landscape = false;
+  function checkOrientation(){
+    const m = window.matchMedia("(orientation: landscape)");
+    const next = !!(m.matches || (window.innerWidth > window.innerHeight));
+    if (next !== landscape){
+      landscape = next;
+      // O grid muda via CSS. Reaproveitamos os tiles e os ícones já carregados;
+      // só a escala visual precisa ser recalculada após a nova viewport.
+      requestAnimationFrame(function(){
+        layoutDockScale();
+        updateLandDir();
+      });
+    }
+    return next;
+  }
+  const DEFAULT_MAX_PINNED_APPS = 40;
+  const DEFAULT_MAX_PINNED_PAGES = 5;
+  function pageSize(){ return 8; }
+
+  function applyPinnedLimits(limits){
+    if (!limits || typeof limits !== "object") return;
+    if (Number.isInteger(limits.maxPinnedPieces) && limits.maxPinnedPieces > 0){
+      state.maxPinnedPieces = limits.maxPinnedPieces;
+    }
+    if (Number.isInteger(limits.maxPinnedApps) && limits.maxPinnedApps > 0){
+      state.maxPinnedApps = limits.maxPinnedApps;
+    }
+    if (Number.isInteger(limits.maxPages) && limits.maxPages > 0){
+      state.maxPinnedPages = limits.maxPages;
+    }
+  }
+
+  function pinnedLimitMessage(){
+    return t("toast.pinnedLimit", { pages: state.maxPinnedPages });
+  }
+
+  function serverErrorMessage(data, fallbackKey, values = {}){
+    const code = data && typeof data.code === "string" ? data.code : "";
+    const codeKey = code ? "error." + code : "";
+    const catalog = I18N[currentLanguage] || I18N["pt-BR"];
+    return codeKey && catalog[codeKey] ? t(codeKey, values) : t(fallbackKey, values);
+  }
+
+  async function req(path, opts){
+    opts = opts || {};
+    const timeout = opts.timeout || 2500;
+    let c = null;
+    if (typeof AbortController !== "undefined") c = new AbortController();
+    const id = setTimeout(function(){ if (c) c.abort(); }, timeout);
+    try {
+      const init = { method: opts.method || "GET", headers: opts.headers, body: opts.body, credentials: "same-origin" };
+      if (c) init.signal = c.signal;
+      const res = await fetch(path, init);
+      if (res.status === 401) { showLogin(); }
+      const ct = res.headers.get("content-type") || "";
+      const data = /application\/json/.test(ct) ? await res.json().catch(function(){ return {}; }) : null;
+      return { status: res.status, data: data };
+    } finally { clearTimeout(id); }
+  }
+  function post(path, body){
+    return req(path, {
+      method: "POST",
+      headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      timeout: 4000,
+    });
+  }
+
+  // ---------- estado ----------
+  const state = {
+    online: false,
+    screen: "apps",
+    pieces: [], revision: 0, pinned: [], running: [], installed: [],
+    maxPinnedApps: DEFAULT_MAX_PINNED_APPS,
+    maxPinnedPieces: DEFAULT_MAX_PINNED_APPS,
+    maxPinnedPages: DEFAULT_MAX_PINNED_PAGES,
+    installedReady: false,
+    obs: { connected: false, error: false, scenes: [], scene: null, recording: false, streaming: false },
+    obsTimer: null,
+  };
+
+  const isRunning = name => state.running.some(a => a.name === name);
+
+  // ---------- tap / hold ----------
+  let suppressClickUntil = 0;
+  function bindTap(el, fn){
+    el.addEventListener("click", function(e){
+      if (Date.now() < suppressClickUntil) return;
+      if (e.target && e.target.closest && e.target.closest("[data-ignore]")) return;
+      fn(el, e);
+    });
+  }
+  function preventTouchFocusScroll(el){
+    el.addEventListener("pointerdown", function(start){
+      if (!start || start.pointerType === "mouse") return;
+      const scroller = el.closest(".launchpad, .deck");
+      if (!scroller) return;
+      const startLeft = scroller.scrollLeft;
+      const startTop = scroller.scrollTop;
+      const startX = start.clientX;
+      const startY = start.clientY;
+      const pointerId = start.pointerId;
+      let moved = false;
+      let finished = false;
+      let focusCleanupT = null;
+      function restore(){
+        scroller.scrollLeft = startLeft;
+        scroller.scrollTop = startTop;
+      }
+      function move(e){
+        if (!e || e.pointerId !== pointerId) return;
+        if (Math.hypot(e.clientX - startX, e.clientY - startY) > 8) moved = true;
+      }
+      function focus(){
+        if (moved) return;
+        restore();
+        if (document.activeElement === el) el.blur();
+        requestAnimationFrame(function(){
+          if (!moved) restore();
+        });
+      }
+      function cleanup(){
+        window.removeEventListener("pointermove", move, true);
+        window.removeEventListener("pointerup", finish, true);
+        window.removeEventListener("pointercancel", finish, true);
+        if (focusCleanupT) clearTimeout(focusCleanupT);
+        focusCleanupT = setTimeout(function(){
+          el.removeEventListener("focus", focus, true);
+          focusCleanupT = null;
+        }, 350);
+      }
+      function finish(e){
+        if (finished || !e || e.pointerId !== pointerId) return;
+        finished = true;
+        cleanup();
+        if (!moved){
+          restore();
+          if (document.activeElement === el) el.blur();
+        }
+      }
+      el.addEventListener("focus", focus, true);
+      window.addEventListener("pointermove", move, true);
+      window.addEventListener("pointerup", finish, true);
+      window.addEventListener("pointercancel", finish, true);
+      requestAnimationFrame(function(){
+        if (!finished && !moved) restore();
+      });
+    }, { passive: true });
+  }
+  function bindHold(el, fn){
+    let timer = null, x = 0, y = 0, pointerId = null;
+    function clear(e){
+      if (e && pointerId !== null && e.pointerId !== pointerId) return;
+      if (timer){ clearTimeout(timer); timer = null; }
+      pointerId = null;
+      window.removeEventListener("pointerup", clear, true);
+      window.removeEventListener("pointercancel", clear, true);
+    }
+    el.addEventListener("pointerdown", function(e){
+      clear();
+      pointerId = e.pointerId;
+      x = e.clientX; y = e.clientY;
+      timer = setTimeout(function(){
+        timer = null;
+        if (!el.isConnected) return;
+        suppressClickUntil = Date.now() + 700;
+        fn(el);
+      }, 550);
+      window.addEventListener("pointerup", clear, true);
+      window.addEventListener("pointercancel", clear, true);
+    });
+    el.addEventListener("pointermove", function(e){
+      if (timer && Math.hypot(e.clientX - x, e.clientY - y) > 10) clear();
+    });
+    el.addEventListener("pointerup", clear);
+    el.addEventListener("pointercancel", clear);
+    el.addEventListener("pointerleave", clear);
+  }
+  function makeBtn(el, label, fn){
+    el.setAttribute("role", "button");
+    el.setAttribute("aria-label", label);
+    el.tabIndex = 0;
+    preventTouchFocusScroll(el);
+    el.addEventListener("contextmenu", function(e){
+      e.preventDefault();
+      e.stopPropagation();
+    }, { passive: false });
+    el.addEventListener("dragstart", function(e){ e.preventDefault(); }, { passive: false });
+    el.addEventListener("pointerdown", function(e){ pressFeedback(el, e); });
+    el.addEventListener("keydown", function(e){
+      if (e.key === "Enter" || e.key === " "){
+        e.preventDefault();
+        pressFeedback(el, e);
+        fn(el, e);
+      }
+    });
+    bindTap(el, fn);
+  }
+
+  // ---------- actions ----------
+  async function activateApp(name){
+    // A tela 2 pode aparecer imediatamente depois da resposta do PC. Começa
+    // o carregamento do ícone no mesmo instante do clique para reutilizar o
+    // blob em memória quando o card for montado.
+    primeIcon(name);
+    const run = state.running.find(a => a.name === name);
+    const pid = run && Number.isInteger(run.pid) && run.pid > 0 ? run.pid : undefined;
+    let r;
+    try { r = await post("/api/apps/" + encodeURIComponent(name) + "/activate", { pid: pid }); }
+    catch (e) { toast(t("toast.macDisconnected"), "err"); return; }
+    if (!r || r.data.ok !== true) toast(serverErrorMessage(r && r.data, "toast.openFailed", { name: name }), "err");
+    else loadApps();
+  }
+
+  async function activatePiece(piece){
+    if (!piece || !piece.id) return;
+    if (piece.type === "app") return activateApp(piece.name);
+    let r;
+    try { r = await post("/api/pieces/" + encodeURIComponent(piece.id) + "/open"); }
+    catch (e) { toast(t("toast.macDisconnected"), "err"); return; }
+    if (!r || !r.data || r.data.ok !== true) {
+      const code = r && r.data && r.data.code;
+      const message = code === "SHORTCUT_ALREADY_RUNNING"
+        ? t("error.SHORTCUT_ALREADY_RUNNING")
+        : code === "HTTPS_REQUIRED"
+          ? t("error.HTTPS_REQUIRED")
+          : t("toast.openFailed", { name: piece.title || piece.name || t("site") });
+      toast(message, "err");
+    }
+  }
+
+  async function pinApp(name){
+    if (state.pinned.indexOf(name) === -1 && state.pieces.length >= state.maxPinnedPieces){
+      toast(pinnedLimitMessage(), "err");
+      return;
+    }
+    let r;
+    try { r = await post("/api/config/pinned", { app: name }); }
+    catch (e) { toast(t("toast.macDisconnected"), "err"); return; }
+    if (r && r.data.ok === true){ toast(t("toast.pinAdded", { name: name })); loadApps(); }
+    else if (r && r.data && r.data.code === "PINNED_LIMIT_REACHED") {
+      applyPinnedLimits(r.data.limits);
+      toast(serverErrorMessage(r.data, "toast.pinFailed", { pages: state.maxPinnedPages }), "err");
+    }
+    else toast(t("toast.pinFailed"), "err");
+  }
+
+  async function unpinApp(name){
+    let r;
+    try { r = await req("/api/config/pinned/" + encodeURIComponent(name), { method: "DELETE", timeout: 4000 }); }
+    catch (e) { toast(t("toast.macDisconnected"), "err"); return; }
+    if (r.data && r.data.ok === true){ toast(t("toast.removed", { name: name })); loadApps(); }
+    else toast(t("toast.removeFailed"), "err");
+  }
+
+  async function unpinPiece(id){
+    const piece = state.pieces.find(function(item){ return item.id === id; });
+    if (!piece) return;
+    let r;
+    try {
+      r = await req("/api/config/pieces/" + encodeURIComponent(id), {
+        method: "DELETE", timeout: 4000,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ revision: state.revision }),
+      });
+    } catch (e) { toast(t("toast.macDisconnected"), "err"); return; }
+    if (r.data && r.data.ok === true){ toast(t("toast.removed", { name: piece.title || piece.name })); loadApps(); }
+    else if (r.data && r.data.code === "REVISION_CONFLICT"){
+      applyConfigSnapshot(r.data.config);
+      toast(t("toast.dockChanged"), "err");
+    } else toast(t("toast.removeFailed"), "err");
+  }
+
+  function applyConfigSnapshot(config){
+    if (!config || !Array.isArray(config.pieces) || !Array.isArray(config.pinned)) return;
+    applyAppsPayload(config.pieces, config.pinned, state.running, config.limits, config.revision);
+  }
+
+  let lastFocus = null;
+  function modalFocus(){
+    const sheet = $("sheet");
+    sheet.setAttribute("role", "dialog");
+    sheet.setAttribute("aria-modal", "true");
+    const f = sheet.querySelector("button");
+    if (f) f.focus();
+  }
+  function modal(html, beforeMount, kind){
+    beforeMount = beforeMount || function(){};
+    lastFocus = document.activeElement;
+    const isConfirm = kind === "confirm";
+    $("scrim").classList.toggle("confirm-scrim", isConfirm);
+    $("sheet").classList.toggle("confirm-sheet", isConfirm);
+    if (typeof html === "string") $("sheet").innerHTML = html;
+    else replaceChildren($("sheet"), [html]);
+    beforeMount();
+    $("scrim").classList.add("show");
+    modalFocus();
+  }
+  function closeModal(){
+    $("scrim").classList.remove("show", "confirm-scrim");
+    $("sheet").classList.remove("confirm-sheet");
+    $("sheet").innerHTML = "";
+    if (lastFocus && lastFocus.isConnected && lastFocus.focus) lastFocus.focus();
+    lastFocus = null;
+  }
+  $("scrim").addEventListener("pointerdown", function(e){ if (e.target === $("scrim")) closeModal(); });
+
+  function favLong(el){
+    // aceita elemento (hold) ou string (nome) — evita TypeError se alguém passar name direto
+    const piece = typeof el === "object" && el && el.type ? el : null;
+    const isWebsite = piece && piece.type === "website";
+    const isShortcut = piece && piece.type === "shortcut";
+    const name = piece
+      ? (isWebsite ? piece.title || piece.url || t("site") : piece.name)
+      : (typeof el === "string" ? el : (el && el.dataset ? el.dataset.name : ""));
+    if (!name) return;
+    const content = document.createDocumentFragment();
+    const icon = document.createElement("div");
+    icon.className = "aglass confirm-icon";
+    const iconImg = document.createElement("img");
+    iconImg.className = "aicon";
+    iconImg.alt = "";
+    iconImg.draggable = false;
+    iconImg.decoding = "async";
+    iconImg.loading = "eager";
+    iconImg.addEventListener("load", function(){
+      iconImg.dataset.iconLoaded = "1";
+      iconImg.classList.add("ready");
+    });
+    iconImg.addEventListener("error", function(){
+      if (isWebsite && iconImg.dataset.faviconFallback !== "1") {
+        iconImg.dataset.faviconFallback = "1";
+        const fallback = websiteFaviconFallbackPath(piece.url);
+        if (fallback) {
+          iconImg.src = fallback;
+          return;
+        }
+      }
+      iconFallback(iconImg, icon, name);
+    });
+    icon.appendChild(iconImg);
+    if (isWebsite) {
+      const favicon = websiteFaviconPath(piece.url);
+      if (favicon) iconImg.src = favicon;
+      else iconFallback(iconImg, icon, name);
+    } else if (isShortcut) {
+      iconImg.src = shortcutIconDataURL(piece.emoji);
+    } else {
+      loadIcon(name, iconImg, icon);
+    }
+    content.appendChild(icon);
+    const title = document.createElement("h3");
+    title.textContent = isWebsite ? t("modal.removeWebsite") : isShortcut ? t("modal.removeShortcut") : t("modal.removeApp");
+    content.appendChild(title);
+    const body = document.createElement("div");
+    body.className = "body";
+    body.textContent = isWebsite
+      ? t("modal.removeWebsiteBody", { name: name })
+      : isShortcut
+        ? t("modal.removeShortcutBody", { name: name })
+        : t("modal.removeAppBody", { name: name });
+    content.appendChild(body);
+    const btns = document.createElement("div");
+    btns.className = "btns";
+    const cancel = document.createElement("button");
+    cancel.className = "btn ghost";
+    cancel.dataset.sclose = "";
+    cancel.textContent = t("modal.cancel");
+    btns.appendChild(cancel);
+    const confirm = document.createElement("button");
+    confirm.className = "btn danger";
+    confirm.dataset.confirm = "";
+    confirm.textContent = t("modal.removeConfirm");
+    btns.appendChild(confirm);
+    content.appendChild(btns);
+    modal(
+      content,
+      function(){
+        $("sheet").querySelector("[data-sclose]").addEventListener("click", closeModal);
+        $("sheet").querySelector("[data-confirm]").addEventListener("click", function(){
+          closeModal();
+          if (isWebsite || isShortcut) unpinPiece(piece.id);
+          else unpinApp(name);
+        });
+      }, "confirm");
+  }
+
+  function tileLong(el){
+    const id = el && el.dataset ? el.dataset.id : "";
+    const piece = state.pieces.find(function(item){ return item.id === id; });
+    if (!piece) return;
+    if (piece.type === "website" || piece.type === "shortcut") favLong(piece);
+    else if (state.pinned.indexOf(piece.name) !== -1) favLong(piece.name);
+    else pinApp(piece.name);
+  }
+
+  // ---------- rendering: launchpad ----------
+  const launchpad = $("launchpad");
+  const launchpadTrack = $("launchpadTrack");
+  const dots = $("dots");
+  let pages = [];
+  let pageGridScale = 1;
+  const iconCache = new Map();
+  const iconInflight = new Map();
+  const ICON_REV = "5";
+  const ua = typeof navigator === "object" && navigator ? navigator.userAgent || "" : "";
+  const IS_ANDROID_WEBVIEW = /Android/i.test(ua) && (/\bwv\b/i.test(ua) || /Version\/4\.0/i.test(ua));
+  if (IS_ANDROID_WEBVIEW) document.documentElement.classList.add("android-webview");
+
+  function iconPath(name){
+    return "/api/apps/" + encodeURIComponent(name) + "/icon?v=" + ICON_REV;
+  }
+  function shortcutIconDataURL(emoji){
+    const glyph = Array.from(emoji || "🖱️", character => "&#x" + character.codePointAt(0).toString(16) + ";").join("");
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#6b31d4"/><stop offset="1" stop-color="#351080"/></linearGradient></defs><rect width="64" height="64" rx="17" fill="url(#g)"/><text x="32" y="45" text-anchor="middle" font-family="Apple Color Emoji,Segoe UI Emoji,Noto Color Emoji,sans-serif" font-size="36">' + glyph + '</text></svg>';
+    return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+  }
+  function iconFallback(img, target, name){
+    if (img && img.isConnected) img.remove();
+    if (target && !target.querySelector(".gicon")) target.appendChild(giconEl(name));
+  }
+  function websiteFaviconPath(raw){
+    try {
+      const u = new URL(raw);
+      const host = u.hostname.toLowerCase().replace(/^www\./, "");
+      if (host === "github.com") return "https://github.githubassets.com/favicons/favicon.svg";
+      return "https://www.google.com/s2/favicons?domain=" + encodeURIComponent(u.host) + "&sz=128";
+    } catch (e) { return ""; }
+  }
+  function websiteFaviconFallbackPath(raw){
+    try {
+      const u = new URL(raw);
+      return u.protocol + "//" + u.host + "/favicon.ico";
+    } catch (e) { return ""; }
+  }
+  function loadIcon(name, img, glass){
+    const cached = iconCache.get(name);
+    if (cached){
+      if (img) img.src = cached;
+      return Promise.resolve(cached);
+    }
+    // Mostra o PNG pelo endpoint imediatamente. O fetch em paralelo aquece
+    // o cache compartilhado; esperar o blob antes de definir src fazia a tela
+    // 2 cair no monograma durante a primeira abertura do app.
+    if (img && !img.src) img.src = iconPath(name);
+    let pending = iconInflight.get(name);
+    if (!pending){
+      pending = fetch(iconPath(name), { credentials: "same-origin", cache: "force-cache" })
+        .then(function(res){
+          if (!res.ok) throw new Error("icon " + res.status);
+          return res.blob();
+        })
+        .then(function(blob){
+          const src = URL.createObjectURL(blob);
+          iconCache.set(name, src);
+          return src;
+        })
+        .finally(function(){ iconInflight.delete(name); });
+      iconInflight.set(name, pending);
+    }
+    return pending.then(function(src){
+      if (img && img.isConnected && img.dataset.iconLoaded !== "1") img.src = src;
+      return src;
+    }).catch(function(){
+      return null;
+    });
+  }
+  function primeIcon(name){
+    loadIcon(name, null, null);
+  }
+  function triggerHaptic(){
+    const android = window.DokkeAndroid;
+    if (android && typeof android.performHapticFeedback === "function"){
+      try {
+        android.performHapticFeedback();
+        return;
+      } catch (e) {}
+    }
+    try {
+      if (navigator && typeof navigator.vibrate === "function") navigator.vibrate(8);
+    } catch (e) {}
+  }
+  function pressFeedback(el, event){
+    if (!el) return;
+    if (event && event.type === "pointerdown") triggerHaptic();
+    el.classList.remove("is-activating");
+    void el.offsetWidth;
+    el.classList.add("is-activating");
+    clearTimeout(el._pressTimer);
+    el._pressTimer = setTimeout(function(){ el.classList.remove("is-activating"); }, 420);
+  }
+
+  function buildTile(a, withIcon){
+    const tile = document.createElement("div");
+    tile.className = "atile";
+    tile.dataset.id = a.id;
+    tile.dataset.type = a.type;
+    if (a.type === "app") tile.dataset.name = a.name;
+    const glass = document.createElement("div");
+    glass.className = "aglass";
+    const websitePlate = a.type === "website" ? document.createElement("div") : null;
+    if (websitePlate) websitePlate.className = "website-plate";
+    const img = document.createElement("img");
+    img.className = "aicon";
+    img.alt = "";
+    img.draggable = false;
+    img.decoding = "async";
+    img.loading = withIcon ? "eager" : "lazy";
+    try { img.fetchPriority = withIcon ? "high" : "low"; } catch (err) {}
+    img.addEventListener("load", function(){
+      img.dataset.iconLoaded = "1";
+      img.classList.add("ready");
+      if (a.type === "app" && !iconCache.has(a.name) && img.currentSrc) iconCache.set(a.name, img.currentSrc);
+    });
+    img.addEventListener("error", function(){
+      if (a.type === "website" && img.dataset.faviconFallback !== "1") {
+        img.dataset.faviconFallback = "1";
+        const fallback = websiteFaviconFallbackPath(a.url);
+        if (fallback) {
+          img.src = fallback;
+          return;
+        }
+      }
+      iconFallback(img, websitePlate || glass, a.type === "website" ? (a.title || "Site") : a.name);
+    });
+    if (websitePlate) {
+      websitePlate.appendChild(img);
+      glass.appendChild(websitePlate);
+    } else {
+      glass.appendChild(img);
+    }
+    if (a.type === "website") img.src = websiteFaviconPath(a.url);
+    else if (a.type === "shortcut") img.src = shortcutIconDataURL(a.emoji);
+    else if (withIcon) loadIcon(a.name, img, glass);
+    else img.src = iconPath(a.name);
+    tile.appendChild(glass);
+    const nm = document.createElement("span");
+    nm.className = "aname";
+    nm.textContent = a.type === "website" ? a.title : a.name;
+    const st = document.createElement("span");
+    st.className = "astatus";
+    st.textContent = a.type === "app" && isRunning(a.name) ? t("dock.opened") : "";
+    if (a.type === "app" && isRunning(a.name)) st.classList.add("on");
+    tile.appendChild(nm);
+    tile.appendChild(st);
+    makeBtn(tile, a.type === "website" ? a.title : a.name, function(){ activatePiece(a); });
+    bindHold(tile, tileLong);
+    return tile;
+  }
+
+  function buildEmptyTile(){
+    const t = document.createElement("div");
+    t.className = "atile empty";
+    const glass = document.createElement("div");
+    glass.className = "aglass";
+    t.appendChild(glass);
+    return t;
+  }
+
+  function replaceChildren(el, kids){
+    while (el.firstChild) el.removeChild(el.firstChild);
+    for (let i = 0; i < kids.length; i++) el.appendChild(kids[i]);
+  }
+
+  /** Marca página como hidratada — imagens já estão no DOM via buildTile. */
+  function hydratePageIcons(pageIdx){
+    const p = launchpadTrack && launchpadTrack.children[pageIdx];
+    if (p) p.dataset.hydrated = "1";
+  }
+
+  function hydrateAround(pageIdx){
+    const n = launchpadTrack ? launchpadTrack.children.length : 0;
+    for (let i = Math.max(0, pageIdx - 1); i <= Math.min(n - 1, pageIdx + 1); i++){
+      hydratePageIcons(i);
+    }
+  }
+
+  function renderLaunchpad(keepPage){
+    const prev = keepPage ? currentPage() : 0;
+    // Tela 1 usa pieces como fonte: sites não dependem do inventário de apps.
+    if (!state.pieces.length && !state.installedReady){
+      if (launchpadTrack) launchpadTrack.innerHTML = "";
+      dots.innerHTML = "";
+      pages = [];
+      return;
+    }
+    const byName = new Map();
+    for (let i = 0; i < state.installed.length; i++) byName.set(state.installed[i].name, state.installed[i]);
+    const byPosition = new Map();
+    for (let i = 0; i < state.pieces.length; i++){
+      const piece = state.pieces[i];
+      const position = Number.isInteger(piece.position) ? piece.position : i;
+      if (piece.type === "website" || piece.type === "shortcut") byPosition.set(position, piece);
+      else {
+        const a = byName.get(piece.name);
+        if (a) byPosition.set(position, { id: piece.id, type: "app", name: a.name, icon: a.icon });
+      }
+    }
+    const pz = pageSize();
+    // O PWA apenas espelha os slots persistidos; a criação de uma nova peça
+    // acontece no picker do host PC, onde cada célula vazia tem seu Add.
+    const pageCount = Math.max(1, Number(state.maxPinnedPages) || DEFAULT_MAX_PINNED_PAGES);
+    const slotCount = pageCount * pz;
+    const list = Array.from({ length: slotCount }, function(_, position){
+      return byPosition.get(position) || null;
+    });
+    const chunked = [];
+    for (let i = 0; i < list.length; i += pz) chunked.push(list.slice(i, i + pz));
+    pages = chunked;
+    // monta grid com monogramas (leve); ícones reais sob demanda
+    const kids = chunked.map(function(chunk, idx){
+      const p = document.createElement("div");
+      p.className = "page";
+      p.dataset.page = String(idx);
+      const grid = document.createElement("div");
+      grid.className = "page-grid";
+      const wantIcon = idx <= 1; // 1ª e 2ª página com ícone já no first paint
+      for (let i = 0; i < chunk.length; i++){
+        grid.appendChild(chunk[i] ? buildTile(chunk[i], wantIcon) : buildEmptyTile());
+      }
+      p.appendChild(grid);
+      if (wantIcon) p.dataset.hydrated = "1";
+      return p;
+    });
+    replaceChildren(launchpadTrack, kids);
+    const page = Math.min(prev, pages.length - 1);
+    renderDots();
+    launchpad.scrollLeft = page * launchpad.clientWidth;
+    if (launchpadTrack){
+      launchpadTrack.style.transition = "";
+      launchpadTrack.style.transform = "";
+    }
+    hydrateAround(page);
+    layoutDockScale();
+  }
+
+  function renderDots(){
+    if (pages.length <= 1){ dots.innerHTML = ""; return; }
+    const kids = pages.map(function(_, i){
+      const d = document.createElement("span");
+      d.className = "d" + (i === currentPage() ? " on" : "");
+      return d;
+    });
+    replaceChildren(dots, kids);
+  }
+  function syncDots(pageIdx){
+    const i = typeof pageIdx === "number" ? pageIdx : currentPage();
+    const ds = dots.querySelectorAll(".d");
+    for (let k = 0; k < ds.length; k++) ds[k].classList.toggle("on", k === i);
+  }
+  function currentPage(){
+    if (!pages.length) return 0;
+    const i = Math.round(launchpad.scrollLeft / Math.max(launchpad.clientWidth, 1));
+    return Math.min(Math.max(i, 0), pages.length - 1);
+  }
+  let dotRaf = null;
+  launchpad.addEventListener("scroll", function(){
+    if (dotRaf) return;
+    dotRaf = requestAnimationFrame(function(){
+      dotRaf = null;
+      if (!pages.length) return;
+      const i = currentPage();
+      syncDots(i);
+      hydrateAround(i);
+    });
+  });
+
+  // ---- paisagem: dock mantém geometria retrato, só escala (GPU); ícones legíveis ----
+  function layoutDockScale(){
+    if (document.body.classList.contains("swiping")) return;
+    const pageEls = launchpadTrack ? [...launchpadTrack.children] : [];
+    const gridEls = pageEls.map(page => page.firstElementChild).filter(Boolean);
+    if (!launchpad || !pages.length || !pageEls.length || !gridEls.length){
+      pageGridScale = 1;
+      if (launchpad && launchpad.style.transform) launchpad.style.transform = "";
+      for (const grid of gridEls) grid.style.transform = "";
+      return;
+    }
+    // O pager continua sendo a janela fixa de recorte. Escalar o próprio
+    // launchpad também move essa janela e deixa os extremos dos cards fora
+    // dela; a escala deve ficar na página, ao redor do centro da grade.
+    if (launchpad.style.transform) launchpad.style.transform = "";
+    // A escala anterior altera os rects. Limpe-a antes de medir para que a
+    // próxima execução seja idempotente e não fique alternando/pulsando.
+    for (const grid of gridEls){
+      grid.style.transform = "";
+    }
+    pageGridScale = 1;
+    const availableH = launchpad.clientHeight;
+    let scale = 1;
+    const firstGrid = gridEls[0];
+    const firstKids = firstGrid && firstGrid.children.length ? firstGrid.children : null;
+    if (firstKids){
+      const first = firstKids[0], last = firstKids[firstKids.length - 1];
+      const firstRect = first.getBoundingClientRect();
+      const lastRect = last.getBoundingClientRect();
+      const contentH = lastRect.bottom - firstRect.top;
+      if (contentH > 0) scale = Math.min(1, availableH / contentH);
+    }
+    pageGridScale = scale;
+    if (scale < 1){
+      const next = "scale(" + scale.toFixed(3) + ")";
+      for (const grid of gridEls) grid.style.transform = next;
+    }
+  }
+  function landNeedsSecondary(){
+    if (!matchMedia("(orientation: landscape)").matches) return false;
+    try {
+      const wo = window.orientation;
+      if (typeof wo === "number" && wo !== 0) return wo > 0;
+      if (screen.orientation){
+        const ang = screen.orientation.angle;
+        const typ = screen.orientation.type;
+        if (ang === 90) return true;
+        if (ang === 270 || ang === -90) return false;
+        if (typeof typ === "string" && typ.indexOf("landscape-primary") === 0) return true;
+        if (typeof typ === "string" && typ.indexOf("landscape-secondary") === 0) return false;
+      }
+      if (typeof window._lastGamma === "number" && Math.abs(window._lastGamma) > 30) return window._lastGamma < 0;
+    } catch (err) {}
+    return false;
+  }
+  function updateLandDir(){
+    document.documentElement.classList.toggle("land-secondary", landNeedsSecondary());
+    syncIconOrientation();
+  }
+  function syncIconOrientation(){
+    document.documentElement.style.setProperty("--icon-turn", "0deg");
+  }
+  try {
+    window.addEventListener("deviceorientation", function(e){
+      if (typeof e.gamma !== "number") return;
+      window._lastGamma = e.gamma;
+      if (Math.abs(e.gamma) > 30 || !matchMedia("(orientation: landscape)").matches) updateLandDir();
+    });
+  } catch (err) {}
+  let scaleTimer = null;
+  function watchScale(){
+    clearInterval(scaleTimer);
+    scaleTimer = setInterval(function(){
+      layoutDockScale();
+    }, 800);
+  }
+  try {
+    matchMedia("(orientation: landscape)").addEventListener("change", function(){ layoutDockScale(); updateLandDir(); });
+    window.addEventListener("resize", function(){ layoutDockScale(); updateLandDir(); });
+    window.addEventListener("orientationchange", function(){
+      layoutDockScale();
+      updateLandDir();
+    });
+    document.addEventListener("visibilitychange", function(){ layoutDockScale(); updateLandDir(); syncScreenWakeLock(); });
+    window.addEventListener("pageshow", function(){ layoutDockScale(); updateLandDir(); requestScreenWakeLock(); });
+    window.addEventListener("pagehide", releaseScreenWakeLock);
+  } catch (err) {}
+  updateLandDir();
+  watchScale();
+
+  // ---------- rendering: tela 2 — dock organizado (abertos | fixados) ----------
+  let deckPid = null;
+
+  function deckQueue(){
+    const q = [];
+    const seen = {};
+    state.running.forEach(function(a){
+      if (a.type && a.type !== "Foreground") return;
+      if (seen[a.name]) return;
+      seen[a.name] = true;
+      q.push(a.name);
+    });
+    return q;
+  }
+
+  function makeDeckCard(name){
+    const c = document.createElement("div");
+    c.className = "dcard front";
+    c.dataset.name = name;
+    const glass = document.createElement("div");
+    glass.className = "aglass";
+    const img = document.createElement("img");
+    img.className = "aicon";
+    img.alt = "";
+    img.decoding = "async";
+    img.loading = "eager";
+    try { img.fetchPriority = "high"; } catch (err) {}
+    img.addEventListener("load", function(){
+      img.dataset.iconLoaded = "1";
+      img.classList.add("ready");
+      if (!iconCache.has(name) && img.currentSrc) iconCache.set(name, img.currentSrc);
+    });
+    img.addEventListener("error", function(){ iconFallback(img, glass, name); });
+    glass.appendChild(img);
+    loadIcon(name, img, glass);
+    c.appendChild(glass);
+    const nm = document.createElement("div");
+    nm.className = "dname";
+    nm.textContent = name;
+    c.appendChild(nm);
+    makeBtn(c, name, function(el){ activateApp(el.dataset.name); });
+    return c;
+  }
+
+  function renderDeck(){
+    const q = deckQueue();
+    const stage = document.querySelector(".rstage");
+    if (!stage) return;
+    const old = $("deck");
+    if (old) old.parentNode.removeChild(old);
+    if (!q.length) return;
+    const deck = document.createElement("div");
+    deck.className = "deck";
+    deck.id = "deck";
+    const inner = document.createElement("div");
+    inner.className = "deck-inner";
+
+    const group = document.createElement("div");
+    group.className = "deck-group";
+    q.forEach(function(item){
+      group.appendChild(makeDeckCard(item));
+    });
+    inner.appendChild(group);
+    deck.appendChild(inner);
+    stage.appendChild(deck);
+    bindDeckGestures();
+    requestAnimationFrame(layoutDeck);
+  }
+
+  function layoutDeck(){
+    // O layout é flex + overflow nativo. Mantemos a função para o resize do kiosk.
+  }
+
+  function bindDeckGestures(){
+    const deck = $("deck");
+    if (!deck || deck.dataset.bound) return;
+    deck.dataset.bound = "1";
+    let deckStartX = 0;
+    let deckStartY = 0;
+    let deckSwiping = false;
+    deck.addEventListener("pointerdown", function(e){
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      deckStartX = e.clientX;
+      deckStartY = e.clientY;
+      deckSwiping = false;
+      deckPid = e.pointerId;
+    });
+    deck.addEventListener("pointermove", function(e){
+      if (deckPid !== e.pointerId || deckSwiping) return;
+      if (Math.hypot(e.clientX - deckStartX, e.clientY - deckStartY) < 4) return;
+      deckSwiping = true;
+      document.body.classList.add("swiping");
+    });
+    function endDeck(e){
+      if (deckPid !== e.pointerId) return;
+      deckPid = null;
+      if (deckSwiping) document.body.classList.remove("swiping");
+      deckSwiping = false;
+      flushPendingRecents();
+    }
+    deck.addEventListener("pointerup", endDeck);
+    deck.addEventListener("pointercancel", endDeck);
+    deck.addEventListener("pointerleave", function(){
+      if (deckPid == null) document.body.classList.remove("swiping");
+    });
+  }
+
+  function renderRecents(){
+    if (deckPid != null) return;             // drag do deck em andamento: fim do gesto re-renderiza
+    const sc = document.createElement("div");
+    sc.className = "recents";
+
+    const head = document.createElement("div");
+    head.className = "thead";
+    const title = document.createElement("div");
+    title.className = "ttitle";
+    title.textContent = t("recents.title");
+    head.appendChild(title);
+    sc.appendChild(head);
+
+    const stage = document.createElement("div");
+    stage.className = "rstage";
+    sc.appendChild(stage);
+
+    // Tela 2: apps abertos à esquerda, divisor, apps fixados à direita.
+    // Dedupe evita o mesmo app duas vezes quando está aberto e também é favorito.
+    const q = deckQueue();
+    if (!q.length){
+      const e = document.createElement("div");
+      e.className = "rempty";
+      e.textContent = t("recents.empty");
+      stage.appendChild(e);
+    }
+
+    const obsApp = state.running.find(function(a){ return a.name === "OBS" || a.name === "OBS Studio"; });
+    if (obsApp){
+      const card = document.createElement("div");
+      card.className = "robscard";
+      const ic = document.createElement("span");
+      ic.className = "ic";
+      ic.textContent = "◈";
+      card.appendChild(ic);
+      const mid = document.createElement("div");
+      mid.style.cssText = "flex:1 1 auto;min-width:0";
+      const ot = document.createElement("div");
+      ot.className = "ot";
+      ot.textContent = "OBS";
+      mid.appendChild(ot);
+      const os = document.createElement("div");
+      os.className = "os";
+      os.textContent = state.obs.recording ? t("obs.stopRecording") : state.obs.streaming ? t("obs.live") : (state.obs.connected ? t("obs.connected") : t("toast.obsOffline"));
+      mid.appendChild(os);
+      card.appendChild(mid);
+      const arr = document.createElement("span");
+      arr.className = "arr";
+      arr.textContent = "›";
+      card.appendChild(arr);
+      makeBtn(card, t("obs.accessibility", { status: os.textContent }), openDrawer);
+      sc.appendChild(card);
+    }
+
+    if (q.length){
+      const hint = document.createElement("div");
+      hint.className = "thint";
+      hint.textContent = t("dock.tapToOpen");
+      sc.appendChild(hint);
+    }
+
+    replaceChildren($("screenRecents"), [sc]);
+    if (q.length) renderDeck();
+    bindDeckGestures();
+  }
+
+  // ---------- pin sheet ----------
+  function openPinSheet(){
+    const kids = [];
+    const head = document.createElement("h3");
+    head.textContent = t("modal.pinTitle");
+    kids.push(head);
+    const sub = document.createElement("div");
+    sub.style.cssText = "margin-bottom:10px;color:var(--ink-3);font-size:12px";
+    sub.textContent = state.pieces.length >= state.maxPinnedPieces
+      ? pinnedLimitMessage() + ". " + (currentLanguage === "en" ? "Remove a piece to add another." : "Remova uma peça para adicionar outra.")
+      : state.installed.length + (currentLanguage === "en" ? " installed apps" : " apps instalados");
+    if (state.pieces.length >= state.maxPinnedPieces) sub.style.color = "var(--amber)";
+    kids.push(sub);
+    state.installed.forEach(function(a){
+      const pinned = state.pinned.indexOf(a.name) !== -1;
+      const row = document.createElement("div");
+      row.className = "srow";
+      row.dataset.name = a.name;
+      if (a.icon){
+        const img = document.createElement("img");
+        img.src = iconPath(a.name);
+        img.alt = "";
+        img.onerror = function(){
+          if (img.remove) img.remove();
+          row.insertBefore(giconEl(a.name), row.firstChild);
+        };
+        row.appendChild(img);
+      } else {
+        row.appendChild(giconEl(a.name));
+      }
+      const nm = document.createElement("div");
+      nm.style.cssText = "flex:1;min-width:0;font-size:14px;font-weight:600";
+      nm.textContent = a.name;
+      row.appendChild(nm);
+      const pin = document.createElement("span");
+      pin.className = "pin";
+      const limitReached = !pinned && state.pieces.length >= state.maxPinnedPieces;
+      pin.textContent = pinned ? "✓ " + t("dock.pinnedLabel") : (limitReached ? t("dock.limit") : t("dock.pin"));
+      if (limitReached) pin.style.color = "var(--amber)";
+      row.appendChild(pin);
+      makeBtn(row, a.name + (pinned ? ", " + t("dock.pinnedLabel") : ", " + t("dock.pin")), function(el){
+        if (state.pinned.indexOf(el.dataset.name) !== -1) unpinApp(el.dataset.name);
+        else if (state.pieces.length >= state.maxPinnedPieces) toast(pinnedLimitMessage(), "err");
+        else pinApp(el.dataset.name);
+        openPinSheet();
+      });
+      kids.push(row);
+    });
+    const btns = document.createElement("div");
+    btns.className = "btns";
+    const btn = document.createElement("button");
+    btn.className = "btn ghost";
+    btn.textContent = t("dock.close");
+    btn.addEventListener("click", closeModal);
+    btns.appendChild(btn);
+    kids.push(btns);
+    $("sheet").innerHTML = "";
+    replaceChildren($("sheet"), kids);
+    $("scrim").classList.add("show");
+    lastFocus = document.activeElement;
+    modalFocus();
+  }
+
+  // ---------- OBS (drawer) ----------
+  function renderObs(){
+    const panel = $("obspanel");
+    const o = state.obs;
+    if (!o.connected){
+      const msg = o.error ? t("obs.unavailable") : t("obs.offline");
+      const placeholder = document.createElement("div");
+      placeholder.className = "obsplaceholder";
+      const icon = document.createElement("span");
+      icon.className = "ic";
+      icon.textContent = "◈";
+      placeholder.appendChild(icon);
+      const message = document.createTextNode(msg);
+      placeholder.appendChild(message);
+      replaceChildren(panel, [placeholder]);
+      return;
+    }
+    const top = document.createElement("div");
+    top.className = "obstop";
+    const title = document.createElement("span");
+    title.className = "obstitle";
+    title.textContent = t("obs.title");
+    top.appendChild(title);
+    const led = document.createElement("span");
+    led.className = "led on";
+    const ledDot = document.createElement("span");
+    ledDot.className = "d";
+    led.appendChild(ledDot);
+    led.appendChild(document.createTextNode(o.streaming ? t("obs.live") : t("obs.connected")));
+    top.appendChild(led);
+
+    const scenePanel = document.createElement("div");
+    scenePanel.className = "obsscene";
+    for (let i = 0; i < o.scenes.length; i++){
+      const s = o.scenes[i];
+      const scene = document.createElement("button");
+      scene.className = "scene" + (s === o.scene ? " active" : "");
+      scene.dataset.scene = s;
+      scene.textContent = s;
+      scenePanel.appendChild(scene);
+    }
+
+    const controls = document.createElement("div");
+    controls.className = "obsctl";
+    const rec = document.createElement("button");
+    rec.className = "ctl" + (o.recording ? " on-record" : "");
+    rec.dataset.rec = "";
+    const recIcon = document.createElement("span");
+    recIcon.className = "ic";
+    recIcon.textContent = "●";
+    rec.appendChild(recIcon);
+    const recLabel = document.createElement("span");
+    recLabel.textContent = o.recording ? t("obs.stopRecording") : t("obs.startRecording");
+    rec.appendChild(recLabel);
+    controls.appendChild(rec);
+
+    const stream = document.createElement("button");
+    stream.className = "ctl" + (o.streaming ? " on-stream" : "");
+    stream.dataset.str = "";
+    const streamIcon = document.createElement("span");
+    streamIcon.className = "ic";
+    streamIcon.textContent = "▲";
+    stream.appendChild(streamIcon);
+    const streamLabel = document.createElement("span");
+    streamLabel.textContent = o.streaming ? t("obs.stopLive") : t("obs.startLive");
+    stream.appendChild(streamLabel);
+    controls.appendChild(stream);
+
+    const stop = document.createElement("button");
+    stop.className = "ctl stop";
+    stop.dataset.stop = "";
+    const stopIcon = document.createElement("span");
+    stopIcon.className = "ic";
+    stopIcon.textContent = "■";
+    stop.appendChild(stopIcon);
+    const stopLabel = document.createElement("span");
+    stopLabel.textContent = t("obs.stopAll");
+    stop.appendChild(stopLabel);
+    controls.appendChild(stop);
+
+    replaceChildren(panel, [top, scenePanel, controls]);
+    const sc = scenePanel.querySelectorAll(".scene");
+    for (let i = 0; i < sc.length; i++){
+      sc[i].addEventListener("click", function(){ doObs("scene", { scene: this.dataset.scene }); });
+    }
+    rec.addEventListener("click", function(){ doObs("record"); });
+    stream.addEventListener("click", function(){ doObs("stream"); });
+    stop.addEventListener("click", confirmStopAll);
+  }
+
+  function confirmStopAll(){
+    modal(
+      "<h3>" + t("modal.stopAllTitle") + "</h3>" +
+      "<div class=\"body\">" + t("modal.stopAllBody") + "</div>" +
+      "<div class=\"btns\">" +
+      "<button class=\"btn ghost\" data-sclose>" + t("modal.cancel") + "</button>" +
+      "<button class=\"btn danger\" data-confirm>" + t("modal.stopAll") + "</button>" +
+      "</div>",
+      function(){
+        $("sheet").querySelector("[data-sclose]").addEventListener("click", closeModal);
+        $("sheet").querySelector("[data-confirm]").addEventListener("click", function(){ closeModal(); doObs("stop-all"); });
+      });
+  }
+
+  async function doObs(kind, body){
+    let r;
+    try { r = await post("/api/obs/" + encodeURIComponent(kind), body); }
+    catch (e) { toast(t("toast.macDisconnected"), "err"); return; }
+    const d = r.data || {};
+    if (d.ok === true) obsSyncSoon();
+    else if (d.connected === false){ toast(t("toast.obsOffline"), "err"); obsSyncSoon(); }
+    else toast(t("toast.obsCommandFailed"), "err");
+  }
+
+  let syncT = null;
+  function obsSyncSoon(){ clearTimeout(syncT); syncT = setTimeout(loadObs, 400); }
+
+  async function loadObs(){
+    try {
+      const r = await req("/api/obs/state", { timeout: 4200 });
+      const d = r.data || {};
+      if (d.connected === true && d.state && Array.isArray(d.state.scenes)){
+        state.obs = {
+          connected: true, error: false,
+          scenes: d.state.scenes, scene: d.state.scene,
+          recording: !!d.state.recording, streaming: !!d.state.streaming,
+        };
+      } else if (d.connected === false){
+        state.obs = { connected:false, error:false, scenes:[], scene:null, recording:false, streaming:false };
+      } else {
+        state.obs.connected = false; state.obs.error = true;
+      }
+    } catch (e) { state.obs.connected = false; state.obs.error = true; }
+    renderObs();
+    if ($("drawer").classList.contains("show")) state.obsTimer = setTimeout(loadObs, 4000);
+    else state.obsTimer = null;
+  }
+
+  // ---------- reload automático quando o servidor sobe UI nova ----------
+  // O kiosk fica horas aberto; sem isso, roda JS antigo (ex.: tela 2 quebrada)
+  // mesmo com index.html novo no servidor. O servidor já manda "v" no WS e /api/apps.
+  let uiVersionSeen = null;
+  function maybeReloadForUi(v){
+    if (!v) return;
+    if (uiVersionSeen === null){ uiVersionSeen = v; return; }
+    if (uiVersionSeen !== v){
+      toast(t("toast.updated"), "sync");
+      setTimeout(function(){ location.reload(); }, 600);
+    }
+  }
+
+  // ---------- polling (pausa com aba/PWA em background) ----------
+  function pageHidden(){
+    return typeof document.hidden !== "undefined" && document.hidden;
+  }
+  let screenWakeLock = null;
+  let screenWakeLockRequest = 0;
+  async function requestScreenWakeLock(){
+    if (IS_ANDROID_WEBVIEW || !window.isSecureContext || pageHidden() || !navigator.wakeLock || typeof navigator.wakeLock.request !== "function") return;
+    if (screenWakeLock && !screenWakeLock.released) return;
+    const requestId = ++screenWakeLockRequest;
+    try {
+      const lock = await navigator.wakeLock.request("screen");
+      if (requestId !== screenWakeLockRequest || pageHidden()){
+        try { await lock.release(); } catch (e) {}
+        return;
+      }
+      screenWakeLock = lock;
+      lock.addEventListener("release", function(){
+        if (screenWakeLock === lock) screenWakeLock = null;
+      });
+    } catch (e) {
+      screenWakeLock = null;
+    }
+  }
+  function releaseScreenWakeLock(){
+    screenWakeLockRequest += 1;
+    const lock = screenWakeLock;
+    screenWakeLock = null;
+    if (!lock || typeof lock.release !== "function") return;
+    try {
+      const released = lock.release();
+      if (released && typeof released.catch === "function") released.catch(function(){});
+    } catch (e) {}
+  }
+  function syncScreenWakeLock(){
+    if (pageHidden()) releaseScreenWakeLock();
+    else requestScreenWakeLock();
+  }
+  let healthT = null, appsT = null;
+  // polling com backoff adaptativo: online = taxa leve; falha/offline 2x atE 60s
+  // (menos acordar de CPU/radio/bateria no device; volta rapido quando reaparece)
+  let healthBackoff = 15000, appsBackoff = 2500;
+  let healthChecked = false, appsLoadFailed = false, installedLoadFailed = false, connectionRetrying = false;
+  let connectionRevision = 0, healthRequestInFlight = false;
+  const appsLoadSequence = { value: 0 };
+  const HEALTH_OK = 15000, APPS_OK = 2500, POLL_MAX = 60000, POLL_HIDDEN = 30000;
+
+  function ensureAppsPoll(delay){
+    if (appsT) return;
+    appsT = setTimeout(loadApps, Number.isFinite(delay) ? delay : appsBackoff);
+  }
+
+  function renderConnectionNotice(){
+    const installedAppMissing = state.pieces.some(function(piece){
+      return piece.type === "app" && !state.installed.some(function(app){ return app.name === piece.name; });
+    });
+    const installedInventoryNeeded = installedAppMissing || (!state.installedReady && (
+      !state.pieces.length || state.pieces.some(function(piece){ return piece.type === "app"; })
+    ));
+    const noInitialData = (appsLoadFailed && !state.pieces.length) ||
+      (installedLoadFailed && installedInventoryNeeded);
+    const offline = healthChecked && !state.online;
+    const show = !loginOpen && (offline || noInitialData);
+    const wasVisible = connectionNoticeVisible;
+    document.body.classList.toggle("is-disconnected", show);
+    connectionNoticeVisible = show;
+    $("connectionTitle").textContent = offline ? t("connection.offlineTitle") : t("connection.loadFailedTitle");
+    $("connectionDescription").textContent = offline
+      ? t("connection.offlineDescription")
+      : t("connection.loadFailedDescription");
+    const retry = $("connectionRetry");
+    retry.textContent = connectionRetrying ? t("connection.retrying") : t("connection.retry");
+    retry.disabled = connectionRetrying;
+    if (show && !wasVisible){
+      const active = document.activeElement;
+      if (!connectionPreviousFocus && isRestorableFocusTarget(active)) connectionPreviousFocus = active;
+      focusConnectionNotice();
+    } else if (show && retry.disabled && !$("connectionScrim").contains(document.activeElement)){
+      focusConnectionNotice();
+    } else if (!show && wasVisible){
+      const previousFocus = connectionPreviousFocus;
+      if (!loginOpen && previousFocus){
+        requestAnimationFrame(function(){
+          if (!connectionNoticeVisible && !loginOpen) restoreConnectionFocus(previousFocus);
+        });
+      }
+      if (!loginOpen) connectionPreviousFocus = null;
+    } else if (!show && !loginOpen){
+      connectionPreviousFocus = null;
+    }
+  }
+
+  document.addEventListener("keydown", function(event){
+    if (!connectionNoticeVisible || loginOpen || event.key !== "Tab") return;
+    event.preventDefault();
+    focusConnectionNotice();
+  });
+
+  function recentsKey(){
+    let run = [];
+    for (let i = 0; i < state.running.length; i++){
+      const a = state.running[i];
+      if (!a.type || a.type === "Foreground") run.push(a.name);
+    }
+    run.sort();
+    return run.join("\u0001") +
+      "|" + (state.running.some(a => a.name === "OBS" || a.name === "OBS Studio") ? 1 : 0);
+  }
+  let recentsKeyPrev = null;
+
+  async function loadHealth(){
+    if (healthT){ clearTimeout(healthT); healthT = null; }
+    if (pageHidden()){ healthT = setTimeout(loadHealth, POLL_HIDDEN); return; }
+    if (healthRequestInFlight) return;
+    healthRequestInFlight = true;
+    const revisionAtStart = connectionRevision;
+    let ok = false;
+    try {
+      const r = await req("/health", { timeout: 2200 });
+      ok = (r.status === 200) && r.data && r.data.ok === true;
+    } catch (e) { ok = false; }
+    if (revisionAtStart === connectionRevision){
+      const prev = state.online;
+      state.online = ok;
+      connectionRevision += 1;
+      healthChecked = true;
+      renderConnectionNotice();
+      if (prev && !ok) toast(t("toast.macDisconnected"), "err");
+      if (!prev && ok) toast(t("toast.deviceConnected"), "ok");
+      healthBackoff = ok ? HEALTH_OK : Math.min(healthBackoff * 2, POLL_MAX);
+    } else if (state.online){
+      healthBackoff = HEALTH_OK;
+    }
+    healthRequestInFlight = false;
+    healthT = setTimeout(loadHealth, healthBackoff);
+  }
+
+  let pinnedSig = "";
+  let recentsRenderPending = false;
+  let launchpadRenderPending = false;
+  let pendingViewsTimer = null;
+  function cancelPendingViewsTimer(){
+    if (pendingViewsTimer){ clearTimeout(pendingViewsTimer); pendingViewsTimer = null; }
+  }
+  function flushPendingRecents(){
+    if ((!recentsRenderPending && !launchpadRenderPending) || document.body.classList.contains("swiping")) return;
+    if (pendingViewsTimer) return;
+    // Atualizações recebidas durante o settle não podem disputar o último
+    // frame da animação. As telas já estão estáveis quando este pequeno atraso
+    // vence; na próxima troca o pending é preparado antes do movimento.
+    pendingViewsTimer = setTimeout(function(){
+      pendingViewsTimer = null;
+      if (document.body.classList.contains("swiping")) return;
+      if (launchpadRenderPending){
+        launchpadRenderPending = false;
+        renderLaunchpad(true);
+      }
+      if (recentsRenderPending && deckPid == null){
+        recentsRenderPending = false;
+        renderRecents();
+      }
+    }, IS_ANDROID_WEBVIEW ? 120 : 0);
+  }
+  function renderPendingRecentsBeforeTransition(){
+    if (!recentsRenderPending || deckPid != null) return;
+    // A tela 2 ainda está fora da viewport. Montá-la antes do settle tira a
+    // criação dos cards do frame final da animação vertical.
+    cancelPendingViewsTimer();
+    recentsRenderPending = false;
+    renderRecents();
+  }
+  function renderPendingLaunchpadBeforeTransition(){
+    if (!launchpadRenderPending) return;
+    // A tela 1 ainda está fora da viewport. O rebuild fica antes do settle,
+    // nunca no frame em que ela termina de entrar.
+    cancelPendingViewsTimer();
+    launchpadRenderPending = false;
+    renderLaunchpad(true);
+  }
+  function applyAppsPayload(pieces, pinned, running, limits, revision){
+    if (!Array.isArray(pieces) || !Array.isArray(pinned) || !Array.isArray(running)) return false;
+    const nextPieces = pieces.length && typeof pieces[0] === "object"
+      ? pieces
+      : pinned.map(function(name){ return { id: "app:" + name, type: "app", name: name }; });
+    applyPinnedLimits(limits);
+    const nextSig = nextPieces.map(function(piece){ return piece.id; }).join("\u0000");
+    const pinnedChanged = nextSig !== pinnedSig;
+    const installedAppMissing = pinnedChanged && state.installedReady && nextPieces.some(function(piece){
+      return piece.type === "app" && !state.installed.some(function(app){ return app.name === piece.name; });
+    });
+    pinnedSig = nextSig;
+    state.pieces = nextPieces;
+    state.pinned = Array.isArray(pinned) ? pinned : nextPieces.filter(function(piece){ return piece.type === "app"; }).map(function(piece){ return piece.name; });
+    state.revision = Number.isInteger(revision) ? revision : state.revision;
+    state.running = running;
+    if (pinnedChanged){
+      if (document.body.classList.contains("swiping")) launchpadRenderPending = true;
+      else renderLaunchpad(true); // Tela 1 = favoritos; refaz quando pinned muda
+      if (installedAppMissing) loadInstalled();
+    }
+    const key = recentsKey();
+    if (recentsKeyPrev === null || key !== recentsKeyPrev){
+      recentsKeyPrev = key;
+      // Começa o aquecimento assim que o processo aparece no PC. Quando a
+      // tela 2 montar, o <img> já pode pintar o ícone real sem esperar o blob.
+      const warmed = new Set();
+      running.forEach(function(a){
+        if (a.type && a.type !== "Foreground") return;
+        if (warmed.has(a.name)) return;
+        warmed.add(a.name);
+        primeIcon(a.name);
+      });
+      if (document.body.classList.contains("swiping")){
+        recentsRenderPending = true;
+      }
+      else renderRecents();
+    }
+    updateStatuses();
+    return true;
+  }
+
+  // WebSocket: pin no PC → device em <1s (sem esperar poll de 12s)
+  let statusWs = null, wsRetry = 2000, wsTimer = null;
+  function connectStatusWs(){
+    if (!("WebSocket" in window)) return;
+    if (!authed) return;
+    if (statusWs && (statusWs.readyState === 0 || statusWs.readyState === 1)) return;
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    let ws;
+    try { ws = new WebSocket(proto + "//" + location.host + "/ws"); }
+    catch (e) { scheduleWsReconnect(); return; }
+    statusWs = ws;
+    ws.onopen = function(){ wsRetry = 2000; };
+    ws.onmessage = function(ev){
+      let m = null;
+      try { m = JSON.parse(ev.data); } catch (e) { return; }
+      if (!m) return;
+      if (m.type === "online"){
+        // Não deixe uma resposta HTTP mais antiga sobrescrever o evento atual.
+        appsLoadSequence.value += 1;
+        ensureAppsPoll(appsBackoff);
+        healthChecked = true;
+        state.online = !!m.online;
+        connectionRevision += 1;
+        healthBackoff = state.online ? HEALTH_OK : Math.min(healthBackoff * 2, POLL_MAX);
+        renderConnectionNotice();
+        maybeReloadForUi(m.v);
+      } else if (m.type === "apps"){
+        appsLoadSequence.value += 1;
+        ensureAppsPoll(APPS_OK);
+        state.online = true;
+        connectionRevision += 1;
+        healthChecked = true;
+        healthBackoff = HEALTH_OK;
+        appsLoadFailed = false;
+        renderConnectionNotice();
+        maybeReloadForUi(m.v);
+        applyAppsPayload(m.pieces || m.pinned, m.pinned, m.running, m.limits, m.revision);
+      }
+    };
+    ws.onclose = function(){
+      if (statusWs === ws) statusWs = null;
+      scheduleWsReconnect();
+    };
+    ws.onerror = function(){ try { ws.close(); } catch (e) {} };
+  }
+  function scheduleWsReconnect(){
+    if (wsTimer) return;
+    wsTimer = setTimeout(function(){
+      wsTimer = null;
+      if (!pageHidden()) connectStatusWs();
+    }, wsRetry);
+    wsRetry = Math.min(wsRetry * 2, 30000);
+  }
+
+  async function loadApps(forceHTTP){
+    if (appsT){ clearTimeout(appsT); appsT = null; }
+    if (pageHidden()){ appsT = setTimeout(loadApps, POLL_HIDDEN); return; }
+    const requestSequence = ++appsLoadSequence.value;
+    // se WS está vivo, só dá ping leve a cada ciclo longo; senão poll HTTP
+    if (!forceHTTP && statusWs && statusWs.readyState === 1){
+      try { statusWs.send(JSON.stringify({ type: "ping" })); } catch (e) {}
+      appsBackoff = APPS_OK;
+      appsT = setTimeout(loadApps, appsBackoff);
+      return;
+    }
+    let ok = false;
+    try {
+      const r = await req("/api/apps", { timeout: 4200 });
+      if (requestSequence !== appsLoadSequence.value) return;
+      if (r.status === 200){
+        authed = true;
+        if (Array.isArray(r.data && (r.data.pieces || r.data.pinned)) && Array.isArray(r.data && r.data.running)){
+          ok = true;
+          state.online = true;
+          connectionRevision += 1;
+          healthChecked = true;
+          healthBackoff = HEALTH_OK;
+          appsLoadFailed = false;
+          renderConnectionNotice();
+          maybeReloadForUi(r.data.v);
+          applyAppsPayload(r.data.pieces || r.data.pinned, r.data.pinned, r.data.running, r.data.limits, r.data.revision);
+        }
+      }
+    } catch (e) { /* offline: keep last view */ }
+    if (requestSequence !== appsLoadSequence.value) return;
+    if (!ok){
+      appsLoadFailed = true;
+      renderConnectionNotice();
+    }
+    appsBackoff = ok ? APPS_OK : Math.min(appsBackoff * 2, POLL_MAX);
+    appsT = setTimeout(loadApps, appsBackoff);
+    if (!ok) connectStatusWs();
+  }
+  if (typeof document.addEventListener === "function"){
+    document.addEventListener("visibilitychange", function(){
+      if (!pageHidden()){
+        loadHealth();
+        connectStatusWs();
+        loadApps();
+      }
+    });
+  }
+
+  function updateStatuses(){
+    const running = new Set();
+    for (let i = 0; i < state.running.length; i++) running.add(state.running[i].name);
+    const at = document.querySelectorAll(".atile");
+    for (let i = 0; i < at.length; i++){
+      const st = at[i].querySelector(".astatus");
+      if (!st) continue;
+      const on = running.has(at[i].dataset.name);
+      if (on){ st.textContent = t("dock.opened"); st.classList.add("on"); }
+      else { st.textContent = ""; st.classList.remove("on"); }
+    }
+  }
+
+  // tela 2: apps abertos — rebuild cobre mudanças estruturais
+  function updateRecentsDots(){ /* no-op: visual limpo como a ref */ }
+
+  let installedT = null;
+  let installedLoadSequence = 0;
+  function failInstalledLoad(requestSequence){
+    if (requestSequence !== installedLoadSequence) return;
+    installedLoadFailed = true;
+    renderConnectionNotice();
+    installedT = setTimeout(loadInstalled, 8000);
+  }
+  async function loadInstalled(){
+    if (installedT){ clearTimeout(installedT); installedT = null; }
+    const requestSequence = ++installedLoadSequence;
+    const pinnedAtRequest = pinnedSig;
+    try {
+      const r = await req("/api/apps/installed", { timeout: 6000 });
+      if (requestSequence !== installedLoadSequence) return;
+      if (r.status === 200 && r.data && r.data.ok === true && Array.isArray(r.data.apps)){
+        state.installed = r.data.apps;
+        state.installedReady = true;
+        installedLoadFailed = false;
+        renderLaunchpad();
+        renderConnectionNotice();
+        if (pinnedAtRequest !== pinnedSig && state.pieces.some(function(piece){
+          return piece.type === "app" && !r.data.apps.some(function(app){ return app.name === piece.name; });
+        })) loadInstalled();
+      } else if (r.status !== 401){
+        failInstalledLoad(requestSequence);
+      }
+    } catch (e) {
+      failInstalledLoad(requestSequence);
+    }
+  }
+
+  async function retryConnection(){
+    if (connectionRetrying) return;
+    connectionRetrying = true;
+    renderConnectionNotice();
+    if (statusWs){
+      try { statusWs.close(); } catch (e) {}
+      statusWs = null;
+    }
+    wsRetry = 2000;
+    healthBackoff = HEALTH_OK;
+    appsBackoff = APPS_OK;
+    await Promise.all([
+      loadHealth().catch(function(){}),
+      loadApps(true).catch(function(){}),
+      loadInstalled().catch(function(){}),
+    ]);
+    connectionRetrying = false;
+    renderConnectionNotice();
+  }
+  $("connectionRetry").addEventListener("click", retryConnection);
+
+  // ---------- header ----------
+  function openDrawer(){
+    $("drawer").classList.add("show");
+    loadObs();
+  }
+  $("drawerClose").addEventListener("click", function(){
+    $("drawer").classList.remove("show");
+    if (state.obsTimer){ clearTimeout(state.obsTimer); state.obsTimer = null; }
+  });
+
+  // ---------- telas (swipe vertical) ----------
+  const SCREEN_NAMES = ["apps", "recents"];
+  const SCREEN_STORAGE_KEY = "dokke.lastScreen";
+  function screenNames(){
+    return SCREEN_NAMES;
+  }
+  function readPersistedScreen(){
+    try {
+      const saved = localStorage.getItem(SCREEN_STORAGE_KEY);
+      return SCREEN_NAMES.indexOf(saved) >= 0 ? saved : "apps";
+    } catch (e) {
+      return "apps";
+    }
+  }
+  function persistScreen(name){
+    if (SCREEN_NAMES.indexOf(name) < 0) return;
+    try { localStorage.setItem(SCREEN_STORAGE_KEY, name); } catch (e) {}
+  }
+  function renderVDots(){
+    const v = $("vdots");
+    if (!v) return;
+    const names = screenNames();
+    const vDotVisualGap = 20;
+    v.replaceChildren();
+    names.forEach(function(name, i){
+      const d = document.createElement("button");
+      d.type = "button";
+      d.className = "d" + (name === state.screen ? " on" : "");
+      d.setAttribute("aria-label", t("screen." + name));
+      d.setAttribute("aria-current", name === state.screen ? "true" : "false");
+      d.style.setProperty("--vdot-y", (((names.length - 1) / 2 - i) * (44 - vDotVisualGap)) + "px");
+      v.appendChild(d);
+      d.dataset.screen = name;
+      d.addEventListener("click", function(){ goScreen(name); });
+    });
+  }
+
+  function syncVDots(){
+    const ds = $("vdots").querySelectorAll(".d");
+    const names = screenNames();
+    ds.forEach(function(dot, index){
+      const active = names[index] === state.screen;
+      dot.classList.toggle("on", active);
+      dot.setAttribute("aria-current", active ? "true" : "false");
+    });
+  }
+
+  function goScreen(name){
+    const names = screenNames();
+    if (names.indexOf(name) < 0) name = names[names.length - 1] || "apps";
+    if (name === state.screen) return;
+    state.screen = name;
+    persistScreen(name);
+    document.body.classList.toggle("is-recents", name === "recents");
+    syncVDots();
+  }
+
+    const screensEl = $("screens");
+  if (screensEl){
+    const screenApps = $("screenApps");
+    const screenRecents = $("screenRecents");
+    const screenElements = [screenApps, screenRecents];
+    const screenIndex = name => Math.max(0, screenNames().indexOf(name));
+    const DRAG = 4;
+    const AXIS_RATIO = 1.2;
+    const VEL_INST = 0.3;
+    const VEL_AVG = 0.45;
+    const FLICK_MIN = 16;
+    const RUBBER = 28;
+    let sx = 0, sy = 0, t0 = 0, moving = false, pid = null;
+    let wheelDelta = 0;
+    let wheelQueuedIntent = 0;
+    let wheelT = null;
+    let wheelRaf = null;
+    let settleT = null;
+    let settling = false;
+    let settleTarget = null;
+    let lastY = 0, lastT = 0, instVel = 0;
+    const VERTICAL_SETTLE_MS = IS_ANDROID_WEBVIEW ? 200 : 220;
+
+    function h(){ return Math.max(screensEl.offsetHeight, 1); }
+    function commitPx(){ return Math.max(34, Math.round(h() * 0.06)); }
+    function wheelCommitPx(){ return Math.max(70, Math.round(h() * 0.14)); }
+    function activeEl(){ return screenElements[screenIndex(state.screen)] || screenApps; }
+    function rubberDy(dy){
+      const height = h();
+      const atTop = state.screen === "apps" && dy > 0;
+      const atBottom = state.screen === "recents" && dy < 0;
+      if (atTop || atBottom) return Math.sign(dy) * Math.min(Math.abs(dy), RUBBER);
+      return Math.max(-height - RUBBER, Math.min(height + RUBBER, dy));
+    }
+    function applyDrag(dy){
+      const d = rubberDy(dy);
+      const current = screenIndex(state.screen);
+      screenElements.forEach(function(el, index){
+        if (el) el.style.transform = "translate3d(0, " + ((index - current) * h() + d) + "px, 0)";
+      });
+    }
+    function clearDrag(){
+      const current = screenIndex(state.screen);
+      screenElements.forEach(function(el, index){
+        if (!el) return;
+        el.style.transform = "translate3d(0, " + ((index - current) * 100) + "%, 0)";
+        el.style.transition = "";
+      });
+    }
+    let swipeClearRaf = null;
+    function setLayer(on, axis){
+      if (swipeClearRaf){
+        cancelAnimationFrame(swipeClearRaf);
+        swipeClearRaf = null;
+      }
+      try {
+        const g = "transform";
+        for (const el of screenElements){ if (el) el.style.willChange = g; }
+      } catch (err) {}
+      if (on){
+        try { document.body.classList.add("swiping"); } catch (err) {}
+        return;
+      }
+      // A remoção síncrona restaura sombras e pseudo-elementos de todos os
+      // cards exatamente no frame em que a tela termina de entrar.
+      swipeClearRaf = requestAnimationFrame(function(){
+        swipeClearRaf = null;
+        try { document.body.classList.remove("swiping"); } catch (err) {}
+        flushPendingRecents();
+      });
+    }
+    let dragRaf = null, dragDy = null;
+    function dragTo(dy){
+      dragDy = dy;
+      if (!dragRaf) dragRaf = requestAnimationFrame(function(){
+        dragRaf = null;
+        applyDrag(dragDy);
+      });
+    }
+    function dragFlush(){
+      if (dragRaf){ cancelAnimationFrame(dragRaf); dragRaf = null; }
+      if (dragDy != null){ applyDrag(dragDy); dragDy = null; }
+    }
+    function stopWheelGesture(){
+      if (wheelT){ clearTimeout(wheelT); wheelT = null; }
+      if (wheelRaf){ cancelAnimationFrame(wheelRaf); wheelRaf = null; }
+      wheelDelta = 0;
+      wheelQueuedIntent = 0;
+    }
+    function flushQueuedWheel(){
+      const intent = wheelQueuedIntent;
+      wheelQueuedIntent = 0;
+      if (!intent) return;
+      const direction = intent < 0 ? "up" : "down";
+      requestAnimationFrame(function(){
+        if (!settling) settleAndCommit(direction);
+      });
+    }
+    // ---- pager horizontal do launchpad (flick/25% troca página) ----
+    let hGest = false, hOriginInLaunchpad = false, hOriginInDeck = false;
+    let nativeDeckGesture = false;
+    let hStart = 0, hStartPage = 0, hVel = 0, hLastX = 0;
+    let hRaf = null, hDx = 0, hSnapRaf = null, hSnapT = null, hSnapTargetPage = null;
+    const HV_FLICK = 0.32;
+    const H_FLICK_MIN = 14;
+    const HPAGE_RATIO = 0.18;
+    const H_SNAP_DURATION = 250;
+    function hTo(dx){
+      hDx = dx;
+      if (!hRaf) hRaf = requestAnimationFrame(function(){
+        hRaf = null;
+        if (launchpad) launchpad.scrollLeft = hStart - hDx;
+      });
+    }
+    function hFlush(){
+      if (hRaf){ cancelAnimationFrame(hRaf); hRaf = null; }
+      if (launchpad) launchpad.scrollLeft = hStart - hDx;
+    }
+    function hDecide(dx, dt){
+      const pw = Math.max(launchpad.clientWidth, 1);
+      const avg = dt > 0 ? dx / dt : 0;
+      const speed = Math.max(Math.abs(hVel), Math.abs(avg));
+      const flick = speed >= HV_FLICK && Math.abs(dx) >= H_FLICK_MIN;
+      if ((flick && dx < 0) || dx <= -pw * HPAGE_RATIO) return "next";
+      if ((flick && dx > 0) || dx >= pw * HPAGE_RATIO) return "prev";
+      return null;
+    }
+    function smoothSnapProgress(p){
+      const x = Math.min(Math.max(p, 0), 1);
+      if (x <= 0 || x >= 1) return x;
+      let lo = 0, hi = 1, t = x;
+      // Resolve x on cubic-bezier(.22, 1, .36, 1) so the same motion token
+      // is used by the PWA and by the Android WebView assentamento.
+      for (let n = 0; n < 8; n++){
+        const omt = 1 - t;
+        const bx = 3 * omt * omt * t * .22 + 3 * omt * t * t * .36 + t * t * t;
+        if (bx < x) lo = t;
+        else hi = t;
+        t = (lo + hi) / 2;
+      }
+      const omt = 1 - t;
+      return 3 * omt * omt * t + 3 * omt * t * t + t * t * t;
+    }
+    function stopHorizontalSnap(){
+      if (hSnapRaf){ cancelAnimationFrame(hSnapRaf); hSnapRaf = null; }
+      if (hSnapT){ clearTimeout(hSnapT); hSnapT = null; }
+      if (launchpadTrack) launchpadTrack.style.transition = "";
+      if (launchpad){
+        if (hSnapTargetPage != null) launchpad.scrollLeft = hSnapTargetPage * Math.max(launchpad.clientWidth, 1);
+        launchpad.style.scrollSnapType = "";
+        launchpad.style.scrollBehavior = "";
+      }
+      hSnapTargetPage = null;
+    }
+    function finishHorizontalSnap(target){
+      hSnapRaf = null;
+      if (hSnapT){ clearTimeout(hSnapT); hSnapT = null; }
+      launchpad.scrollLeft = target;
+      hSnapTargetPage = null;
+      launchpad.style.scrollSnapType = "";
+      launchpad.style.scrollBehavior = "";
+    }
+    function animateHorizontalSnap(target, duration){
+      if (!launchpad) return;
+      if (hSnapRaf){ cancelAnimationFrame(hSnapRaf); hSnapRaf = null; }
+      if (hSnapT){ clearTimeout(hSnapT); hSnapT = null; }
+      const from = launchpad.scrollLeft;
+      const delta = target - from;
+      if (Math.abs(delta) < 1){
+        finishHorizontalSnap(target);
+        return;
+      }
+      const started = performance.now();
+      const step = function(now){
+        const p = Math.min((now - started) / duration, 1);
+        const eased = smoothSnapProgress(p);
+        launchpad.scrollLeft = from + delta * eased;
+        if (p < 1){
+          hSnapRaf = requestAnimationFrame(step);
+          return;
+        }
+        finishHorizontalSnap(target);
+      };
+      hSnapRaf = requestAnimationFrame(step);
+    }
+    function hCommit(dir){
+      if (!launchpad || !pages.length){
+        stopHorizontalSnap();
+        return;
+      }
+      const pw = Math.max(launchpad.clientWidth, 1);
+      const i = Math.min(Math.max(hStartPage, 0), pages.length - 1);
+      let t = i;
+      if (dir === "prev") t = Math.max(i - 1, 0);
+      else if (dir === "next") t = Math.min(i + 1, pages.length - 1);
+      launchpad.style.scrollSnapType = "none";
+      launchpad.style.scrollBehavior = "auto";
+      const reduced = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const duration = reduced ? 1 : H_SNAP_DURATION;
+      hSnapTargetPage = t;
+      animateHorizontalSnap(t * pw, duration);
+    }
+
+    function finishSettle(nextName){
+      if (!settling && !nextName) return;
+      const resolvedTarget = nextName || settleTarget || screensEl._nextScreen || null;
+      settling = false;
+      settleTarget = null;
+      setLayer(false);
+      if (settleT){ clearTimeout(settleT); settleT = null; }
+      screensEl.removeEventListener("transitionend", onSettleEnd);
+      screensEl._nextScreen = null;
+      if (resolvedTarget) goScreen(resolvedTarget);
+      clearDrag();
+      flushPendingRecents();
+      if (typeof layoutDockScale === "function"){
+        requestAnimationFrame(function(){ try{ layoutDockScale(); }catch(e){} });
+      }
+      flushQueuedWheel();
+    }
+    function onSettleEnd(e){
+      if (e.propertyName && e.propertyName !== "transform") return;
+      if (!settling) return;
+      const current = screenIndex(state.screen);
+      const target = settleTarget ? screenIndex(settleTarget) : -1;
+      if (e.target !== screenElements[current] && e.target !== screenElements[target]) return;
+      finishSettle(settleTarget);
+    }
+    function settleTo(nextName){
+      const names = screenNames();
+      if (names.indexOf(nextName) < 0 || nextName === state.screen) return;
+      stopWheelGesture();
+      settling = true;
+      settleTarget = nextName;
+      setLayer(true, "vertical");
+      if (settleT){ clearTimeout(settleT); settleT = null; }
+      screensEl.removeEventListener("transitionend", onSettleEnd);
+      const movingDown = screenIndex(nextName) > screenIndex(state.screen);
+      const movement = Math.max(1, Math.abs(screenIndex(nextName) - screenIndex(state.screen)));
+      const hasPendingRecents = nextName === "recents" && recentsRenderPending;
+      const hasPendingLaunchpad = nextName === "apps" && launchpadRenderPending;
+      if (hasPendingRecents || hasPendingLaunchpad){
+        const doPending = hasPendingRecents ? renderPendingRecentsBeforeTransition : renderPendingLaunchpadBeforeTransition;
+        requestAnimationFrame(function(){
+          doPending();
+          requestAnimationFrame(function(){
+            if (!settling) return;
+            void screensEl.offsetHeight;
+            const ease = IS_ANDROID_WEBVIEW
+              ? "transform .20s cubic-bezier(.22,.61,.36,1)"
+              : "transform .22s cubic-bezier(.22,.61,.36,1)";
+            const current = screenIndex(state.screen);
+            const target = screenIndex(nextName);
+            screenElements.forEach(function(el, index){
+              if (!el) return;
+              el.style.transition = index === current || index === target ? ease : "none";
+            });
+            applyDrag((movingDown ? -1 : 1) * h() * movement);
+            screensEl._nextScreen = nextName || null;
+            screensEl.addEventListener("transitionend", onSettleEnd);
+            settleT = setTimeout(function(){
+              finishSettle(nextName);
+            }, VERTICAL_SETTLE_MS + 120);
+          });
+        });
+        return;
+      }
+      if (nextName === "recents"){
+        renderPendingRecentsBeforeTransition();
+      } else if (nextName === "apps"){
+        renderPendingLaunchpadBeforeTransition();
+      }
+      requestAnimationFrame(function(){
+        if (!settling) return;
+        void screensEl.offsetHeight;
+        // Calcula a posição final usando a tela atual como referência. Antes o
+        // estado era trocado primeiro e applyDrag usava o eixo errado, causando
+        // um salto/travamento na entrada da tela 2.
+        const ease = IS_ANDROID_WEBVIEW
+          ? "transform .20s cubic-bezier(.22,.61,.36,1)"
+          : "transform .22s cubic-bezier(.22,.61,.36,1)";
+        const current = screenIndex(state.screen);
+        const target = screenIndex(nextName);
+        screenElements.forEach(function(el, index){
+          if (!el) return;
+          el.style.transition = index === current || index === target ? ease : "none";
+        });
+        applyDrag((movingDown ? -1 : 1) * h() * movement);
+        // Mantém as duas camadas visíveis durante o movimento. A troca de z-index
+        // e de pointer-events acontece em finishSettle, depois do último frame.
+        screensEl._nextScreen = nextName || null;
+        screensEl.addEventListener("transitionend", onSettleEnd);
+        settleT = setTimeout(function(){
+          finishSettle(nextName);
+        }, VERTICAL_SETTLE_MS + 120);
+      });
+    }
+    function settleAndCommit(dir){
+      const current = screenIndex(state.screen);
+      const names = screenNames();
+      if (dir === "up" && current < names.length - 1) settleTo(names[current + 1]);
+      else if (dir === "down" && current > 0) settleTo(names[current - 1]);
+      else { setLayer(false); clearDrag(); }
+    }
+    function releasePointer(){
+      if (pid != null && screensEl.releasePointerCapture){
+        try { screensEl.releasePointerCapture(pid); } catch (err) {}
+      }
+      pid = null;
+    }
+    function decideDir(dy, dt){
+      const need = commitPx();
+      const avg = dt > 0 ? Math.abs(dy) / dt : 0;
+      const iv = Math.abs(instVel);
+      const flick =
+        (iv >= VEL_INST && Math.abs(dy) >= FLICK_MIN) ||
+        (avg >= VEL_AVG && Math.abs(dy) >= FLICK_MIN);
+      const current = screenIndex(state.screen);
+      if (dy < 0 && current < screenNames().length - 1 && (dy <= -need || flick)) return "up";
+      if (dy > 0 && current > 0 && (dy >= need || flick)) return "down";
+      return null;
+    }
+
+    screensEl.addEventListener("pointerdown", function(e){
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      stopWheelGesture();
+      stopHorizontalSnap();
+      if (settling){
+        const interruptedTarget = settleTarget || screensEl._nextScreen || null;
+        if (settleT){ clearTimeout(settleT); settleT = null; }
+        screensEl.removeEventListener("transitionend", onSettleEnd);
+        screensEl._nextScreen = null;
+        settling = false;
+        settleTarget = null;
+        if (interruptedTarget) goScreen(interruptedTarget);
+        clearDrag();
+      }
+      sx = e.clientX; sy = e.clientY; t0 = e.timeStamp;
+      lastY = e.clientY; lastT = e.timeStamp; instVel = 0;
+      hStartPage = currentPage();
+      hStart = launchpad ? launchpad.scrollLeft : 0;
+      hLastX = e.clientX; hVel = 0; hGest = false; hDx = 0;
+      hOriginInLaunchpad = !!(e.target && e.target.closest && e.target.closest(".launchpad"));
+      hOriginInDeck = !!(e.target && e.target.closest && e.target.closest(".deck"));
+      nativeDeckGesture = hOriginInDeck;
+      moving = false;
+      pid = e.pointerId;
+      if (screensEl.setPointerCapture && !nativeDeckGesture){
+        try { screensEl.setPointerCapture(pid); } catch (err) {}
+      }
+    });
+
+    screensEl.addEventListener("pointermove", function(e){
+      if (pid == null || e.pointerId !== pid) return;
+      const dx = e.clientX - sx;
+      const dy = e.clientY - sy;
+      const dtt = e.timeStamp - lastT;
+      if (dtt > 0){
+        const v = (e.clientY - lastY) / dtt;
+        instVel = instVel * 0.35 + v * 0.65;
+        const hv = (e.clientX - hLastX) / dtt;
+        hVel = hVel * 0.35 + hv * 0.65;
+      }
+      lastY = e.clientY;
+      hLastX = e.clientX;
+      lastT = e.timeStamp;
+      if (!moving){
+        if (Math.abs(dy) < DRAG && Math.abs(dx) < DRAG) return;
+        if (Math.abs(dx) > Math.abs(dy) * AXIS_RATIO){
+          // Depois do setPointerCapture, o target passa a ser #screens. Use a
+          // origem do toque, não o target capturado.
+          if (!hOriginInLaunchpad && !hOriginInDeck) return;
+          if (nativeDeckGesture) return;
+          setLayer(true, "horizontal");
+          if (launchpad) launchpad.style.scrollSnapType = "none";
+          if (launchpad) launchpad.style.scrollBehavior = "auto";
+          hGest = true; moving = true;
+        } else {
+          if (nativeDeckGesture){
+            nativeDeckGesture = false;
+            deckPid = null;
+            if (screensEl.setPointerCapture){
+              try { screensEl.setPointerCapture(pid); } catch (err) {}
+            }
+          }
+          setLayer(true, "vertical");
+          hGest = false; moving = true;
+        }
+      }
+      e.preventDefault();
+      if (hGest) hTo(dx);
+      else dragTo(dy);
+    }, { passive: false });
+
+    function endPointer(e){
+      if (pid == null) return;               // nunca viu pointerdown (ex.: gesto do deck)
+      if (e && e.pointerId !== pid) return;
+      if (nativeDeckGesture){
+        nativeDeckGesture = false;
+        deckPid = null;
+        releasePointer();
+        return;
+      }
+      dragFlush();
+      hFlush();
+      const ey = e && typeof e.clientY === "number" ? e.clientY : lastY;
+      const et = e && e.timeStamp ? e.timeStamp : lastT;
+      const dy = ey - sy;
+      const dx = (e && typeof e.clientX === "number" ? e.clientX : sx) - sx;
+      const dt = Math.max(et - t0, 1);
+      if (et > lastT){
+        const v = (ey - lastY) / (et - lastT);
+        instVel = instVel * 0.2 + v * 0.8;
+        const hvv = (e && typeof e.clientX === "number" ? e.clientX : hLastX) - hLastX;
+        if (et - lastT > 0) hVel = hVel * 0.2 + (hvv / (et - lastT)) * 0.8;
+      }
+      if (!moving){
+        const vertical = Math.abs(dy) >= Math.abs(dx) * AXIS_RATIO;
+        let done = false;
+        if (vertical){
+          const dirQuick = decideDir(dy, dt);
+          if (dirQuick){
+            suppressClickUntil = Date.now() + 320;
+            settleAndCommit(dirQuick);
+            done = true;
+          }
+        } else if ((hOriginInLaunchpad || hOriginInDeck)
+                   && Math.abs(dx) >= 14 && Math.abs(hVel) >= HV_FLICK){
+          suppressClickUntil = Date.now() + 320;
+          hCommit(hVel < 0 ? "next" : "prev");
+          done = true;
+        }
+        if (!done) setLayer(false);
+        releasePointer();
+        return;
+      }
+      moving = false;
+      suppressClickUntil = Date.now() + 320;
+      if (hGest){
+          hCommit(hDecide(dx, dt));
+        setLayer(false);
+      }
+      else settleAndCommit(decideDir(dy, dt));
+      releasePointer();
+    }
+
+    screensEl.addEventListener("pointerup", endPointer);
+    screensEl.addEventListener("pointercancel", function(e){
+      if (pid != null && e.pointerId !== pid) return;
+      if (nativeDeckGesture){
+        nativeDeckGesture = false;
+        deckPid = null;
+        releasePointer();
+        return;
+      }
+      dragFlush();
+      hFlush();
+      if (hGest){
+        moving = false;
+        hCommit(hDecide(hLastX - sx, Math.max(lastT - t0, 1)));
+        setLayer(false);
+        releasePointer();
+        return;
+      }
+      if (moving || Math.abs(instVel) >= VEL_INST){
+        moving = false;
+        const dy = lastY - sy;
+        settleAndCommit(decideDir(dy, Math.max(lastT - t0, 1)));
+      } else {
+        setLayer(false);
+      }
+      releasePointer();
+    });
+
+    screensEl.addEventListener("wheel", function(e){
+      if (e.ctrlKey) return;
+      if (settling){
+        e.preventDefault();
+        if (e.deltaY !== 0) wheelQueuedIntent += e.deltaY > 0 ? -1 : 1;
+        return;
+      }
+      e.preventDefault();
+      let d = e.deltaY;
+      if (e.deltaMode === 1) d *= 18;
+      else if (e.deltaMode === 2) d *= h();
+      d *= 0.9;
+      d = -d;
+      setLayer(true, "vertical");
+      if (!wheelT) wheelDelta = 0;
+      wheelDelta += d;
+      const maxVis = h() * 0.5;
+      if (wheelDelta > maxVis) wheelDelta = maxVis;
+      if (wheelDelta < -maxVis) wheelDelta = -maxVis;
+      if (!wheelRaf) wheelRaf = requestAnimationFrame(function(){
+        wheelRaf = null;
+        applyDrag(wheelDelta);
+      });
+      clearTimeout(wheelT);
+      wheelT = setTimeout(function(){
+        wheelT = null;
+        const dd = wheelDelta;
+        wheelDelta = 0;
+        const need = wheelCommitPx();
+        const names = screenNames();
+        let dir = null;
+        if (dd <= -need && screenIndex(state.screen) < names.length - 1) dir = "up";
+        else if (dd >= need && screenIndex(state.screen) > 0) dir = "down";
+        settleAndCommit(dir);
+      }, 140);
+    }, { passive: false });
+
+    const vdots = $("vdots");
+    if (vdots){
+      vdots.addEventListener("click", function(e){
+        if (settling) return;
+        const ds = vdots.querySelectorAll(".d");
+        let i = -1;
+        for (let k = 0; k < ds.length; k++){
+          if (e.target === ds[k]){ i = k; break; }
+        }
+        if (i < 0){
+          const r = vdots.getBoundingClientRect();
+          i = Math.min(screenNames().length - 1, Math.floor(((e.clientY - r.top) / Math.max(r.height, 1)) * screenNames().length));
+        }
+        const names = screenNames();
+        if (i >= 0 && i < names.length && names[i] !== state.screen) settleTo(names[i]);
+      });
+    }
+
+    function reAnchor(){
+      if (!moving && !settling){
+        clearDrag();
+      }
+    }
+    window.addEventListener("resize", function(){
+      checkOrientation();
+      reAnchor();
+    });
+    if (window.visualViewport){
+      window.visualViewport.addEventListener("resize", reAnchor);
+      window.visualViewport.addEventListener("scroll", reAnchor);
+    }
+  }
+
+  const initialScreen = readPersistedScreen();
+  renderVDots();
+  renderRecents();
+  if (initialScreen !== "apps") goScreen(initialScreen);
+
+  // orientation change
+  checkOrientation();
+  window.addEventListener("resize", function(){
+    checkOrientation();
+    if ($("deck")) layoutDeck();
+  });
+
+  // ---------- aviso de atualização (PC / Android) ----------
+  function cmpVer(a, b){
+    const pa = String(a || "").replace(/^v/, "").split(".").map(n => parseInt(n, 10) || 0);
+    const pb = String(b || "").replace(/^v/, "").split(".").map(n => parseInt(n, 10) || 0);
+    for (let i = 0; i < 3; i++){
+      if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0) ? 1 : -1;
+    }
+    return 0;
+  }
+  function showUpBanner(title, sub, href, version){
+    const b = $("upBanner");
+    $("upTitle").textContent = title;
+    $("upSub").textContent = sub;
+    const download = $("upDownload");
+    const isAndroid = !!(window.DokkeAndroid && window.DokkeAndroid.requestUpdate);
+    download.textContent = isAndroid ? t("update.download") : t("update.release");
+    download.onclick = function(e){
+      e.stopPropagation();
+      if (isAndroid){
+        try { window.DokkeAndroid.requestUpdate(String(version || "")); } catch (err) {}
+        return;
+      }
+      window.open(href, "_blank");
+    };
+    b.classList.add("show");
+  }
+  function hideUpBanner(){
+    $("upBanner").classList.remove("show");
+  }
+  $("upX").addEventListener("click", function(e){
+    e.stopPropagation();
+    $("upBanner").classList.remove("show");
+  });
+  function checkVersion(attempt){
+    attempt = attempt || 0;
+    // Evita manter um banner antigo depois que o APK foi atualizado e a
+    // WebView voltou do instalador do Android.
+    hideUpBanner();
+    fetch("/api/version", { cache: "no-store" })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(v){
+        if (!v || !v.local) return;
+        const rel = v.latest;
+        // O servidor pode estar terminando a primeira consulta ao GitHub.
+        if (!rel && attempt < 2){
+          setTimeout(function(){ checkVersion(attempt + 1); }, 1500);
+          return;
+        }
+        // Android só avisa depois que a release existe no GitHub. O Android e
+        // o PC têm ciclos de release independentes: qualquer falha ao ler a
+        // versão do APK deve encerrar este fluxo, sem cair no alerta do PC.
+        const android = window.DokkeAndroid;
+        const isAndroid = !!(android && typeof android.requestUpdate === "function");
+        if (isAndroid) {
+          let apkNow = "";
+          try {
+            apkNow = typeof android.appVersion === "function"
+              ? String(android.appVersion() || "").trim()
+              : "";
+          } catch (e) {
+            return;
+          }
+          if (!apkNow || !rel || !rel.tag) return;
+          if (cmpVer(rel.tag, apkNow) > 0){
+            showUpBanner(t("update.available"),
+              t("update.version", { version: rel.tag }),
+              rel.apkUrl || "https://github.com/felipenalves/Dokke/releases/latest/download/dokke.apk",
+              rel.tag);
+          }
+          return;
+        }
+        // PC (servidor embutido) desatualizado
+        if (rel && rel.tag && cmpVer(rel.tag, v.local.tag) > 0){
+          showUpBanner(t("update.macTitle"),
+            t("update.macSubtitle", { version: rel.tag }),
+            rel.htmlUrl || "https://github.com/felipenalves/Dokke/releases/latest");
+        }
+      })
+      .catch(function(){});
+  }
+
+  // boot real depende do login (cookie válido) — 401 reabre a wall
+  function boot(){
+    requestScreenWakeLock();
+    connectStatusWs();
+    loadApps();
+    loadInstalled();
+  }
+
+  checkVersion();
+  loadHealth();
+  boot();
+
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/sw.js?rev=dokke-v34").catch(function() {});
+  }
+})();</script>
+</body>
+</html>

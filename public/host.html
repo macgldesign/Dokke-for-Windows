@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dokke</title>
+<link rel="icon" type="image/png" href="/icon-192.png">
+<style>
+:root{--bg:#f3f3f6;--card:#fff;--ink:#1c1c22;--mute:#6b6b78;--line:#e2e2ea;--acc:#6d4aff;--acc-ink:#fff;--ok:#1f9d55;--err:#d13438;--slot:#ececf2}
+@media (prefers-color-scheme:dark){:root{--bg:#16161b;--card:#202027;--ink:#f1f1f6;--mute:#9a9aa8;--line:#31313b;--acc:#8f78ff;--acc-ink:#0f0b24;--ok:#4cc38a;--err:#ff6b6f;--slot:#2a2a33}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 "Segoe UI",system-ui,sans-serif}
+header{display:flex;align-items:center;gap:12px;padding:14px 22px;background:var(--card);border-bottom:1px solid var(--line)}
+header img{width:30px;height:30px;border-radius:8px}
+header h1{font-size:17px;margin:0;font-weight:650}
+header .sp{flex:1}
+.pill{font-size:13px;color:var(--mute);display:flex;align-items:center;gap:6px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--mute)}
+.dot.on{background:var(--ok)}
+nav{display:flex;gap:4px;padding:10px 22px 0}
+nav button{border:0;background:none;color:var(--mute);font:inherit;font-weight:600;padding:9px 14px;border-radius:8px 8px 0 0;cursor:pointer;border-bottom:2px solid transparent}
+nav button[aria-selected=true]{color:var(--ink);border-bottom-color:var(--acc)}
+main{max-width:980px;margin:0 auto;padding:18px 22px 40px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px}
+button.b{font:inherit;font-weight:600;border-radius:9px;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:8px 14px;cursor:pointer}
+button.b:hover{border-color:var(--acc)}
+button.b.pri{background:var(--acc);color:var(--acc-ink);border-color:var(--acc)}
+button:disabled{opacity:.5;cursor:default}
+button:focus-visible,input:focus-visible,select:focus-visible,.slot:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+input,select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:8px 10px;width:100%}
+.pair{display:grid;grid-template-columns:260px 1fr;gap:28px;align-items:start}
+@media (max-width:720px){.pair{grid-template-columns:1fr}}
+#qr{width:260px;height:260px;border-radius:12px;overflow:hidden;background:#fff;border:1px solid var(--line)}
+#qr svg{display:block;width:100%;height:100%}
+.pin{font-size:42px;letter-spacing:.18em;font-weight:700;font-variant-numeric:tabular-nums;margin:2px 0 6px}
+ol.steps{padding-left:20px;margin:6px 0 16px;color:var(--mute)}
+ol.steps b{color:var(--ink)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0}
+.hint{color:var(--mute);font-size:13px}
+details{margin-top:18px;color:var(--mute);font-size:13px}
+code{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:2px 6px;word-break:break-all}
+.pages{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}
+.pages button{min-width:36px}
+.pages button[aria-current=true]{background:var(--acc);color:var(--acc-ink);border-color:var(--acc)}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+@media (max-width:560px){.grid{grid-template-columns:repeat(2,1fr)}}
+.slot{position:relative;aspect-ratio:1/0.92;border-radius:16px;background:var(--slot);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:10px;border:2px dashed transparent;user-select:none}
+.slot.empty{cursor:pointer;color:var(--mute);font-size:28px}
+.slot.empty:hover{border-color:var(--acc);color:var(--acc)}
+.slot.over{border-color:var(--acc)}
+.slot.piece{background:var(--card);border:1px solid var(--line);cursor:grab}
+.slot img,.slot .mono{width:56px;height:56px;border-radius:13px;object-fit:contain;pointer-events:none}
+.mono{display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:22px}
+.slot .name{font-size:13px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center}
+.slot .run{position:absolute;left:10px;top:10px;width:8px;height:8px;border-radius:50%;background:var(--ok)}
+.slot .x{position:absolute;right:6px;top:6px;border:0;background:none;color:var(--mute);font-size:18px;line-height:1;width:26px;height:26px;border-radius:50%;cursor:pointer;opacity:0}
+.slot:hover .x,.slot:focus-within .x{opacity:1}
+.slot .x:hover{background:var(--slot);color:var(--err)}
+dialog{border:1px solid var(--line);border-radius:16px;background:var(--card);color:var(--ink);padding:0;width:min(560px,94vw)}
+dialog::backdrop{background:rgba(0,0,0,.45)}
+.dh{display:flex;align-items:center;gap:8px;padding:14px 18px;border-bottom:1px solid var(--line)}
+.dh h2{margin:0;font-size:16px;flex:1}
+.db{padding:14px 18px;max-height:62vh;overflow:auto}
+.list{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.item{display:flex;align-items:center;gap:12px;padding:8px;border-radius:10px}
+.item:hover{background:var(--bg)}
+.item img,.item .mono{width:34px;height:34px;border-radius:8px;font-size:14px}
+.item .t{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-weight:600;opacity:0;pointer-events:none;transition:opacity .2s;max-width:90vw}
+#toast.show{opacity:1}
+#toast.err{background:var(--err);color:#fff}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+<header>
+  <img src="/icon-192.png" alt="">
+  <h1>Dokke</h1>
+  <span class="sp"></span>
+  <span class="pill"><span class="dot" id="dot"></span><span id="devices"></span></span>
+</header>
+<nav role="tablist">
+  <button role="tab" id="tab-dock" aria-selected="true" data-i="tab.dock"></button>
+  <button role="tab" id="tab-connect" aria-selected="false" data-i="tab.connect"></button>
+</nav>
+<main>
+  <section id="view-dock">
+    <div class="pages" id="pages" role="group"></div>
+    <div class="grid" id="grid"></div>
+    <p class="hint" data-i="dock.hint"></p>
+  </section>
+  <section id="view-connect" class="hidden">
+    <div class="card pair">
+      <div id="qr" role="img"></div>
+      <div>
+        <ol class="steps">
+          <li data-i="step1"></li>
+          <li data-i="step2"></li>
+          <li data-i="step3"></li>
+        </ol>
+        <div class="hint" data-i="pin.label"></div>
+        <div class="pin" id="pin">----</div>
+        <div class="row"><button class="b" id="newPin" data-i="pin.new"></button></div>
+        <div class="hint" data-i="addr.label"></div>
+        <div class="row"><select id="addr" style="flex:1" aria-label="Endereço"></select><button class="b" id="copy" data-i="copy"></button></div>
+        <p class="hint" id="noNet" hidden data-i="noNet"></p>
+        <details>
+          <summary data-i="trouble"></summary>
+          <p data-i="trouble1"></p>
+          <p data-i="trouble2"></p>
+        </details>
+      </div>
+    </div>
+  </section>
+</main>
+
+<dialog id="picker" aria-labelledby="pickerTitle">
+  <div class="dh"><h2 id="pickerTitle" data-i="picker.title"></h2><button class="b" id="pickerClose" data-i="close"></button></div>
+  <div class="db">
+    <div class="row">
+      <button class="b pri" id="mApps" data-i="picker.apps"></button>
+      <button class="b" id="mSites" data-i="picker.sites"></button>
+      <span class="sp" style="flex:1"></span>
+      <button class="b" id="refresh" data-i="picker.refresh"></button>
+    </div>
+    <div id="paneApps"><input id="search" type="search" data-ph="picker.search"><div class="list" id="appList"></div></div>
+    <div id="paneSites" class="hidden">
+      <div class="row"><input id="siteTitle" data-ph="site.name" maxlength="60"></div>
+      <div class="row"><input id="siteUrl" type="url" data-ph="site.url"></div>
+      <div class="row"><button class="b pri" id="addSite" data-i="site.add"></button></div>
+    </div>
+  </div>
+</dialog>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="/qr.js"></script>
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  var LANG = /^pt/i.test(navigator.language || "") ? "pt" : "en";
+  var T = {
+    pt: { "tab.dock": "Dock", "tab.connect": "Conectar", "dock.hint": "Arraste para reorganizar. Toque em + para adicionar apps ou sites.", step1: "Conecte o celular na mesma rede Wi-Fi deste PC.", step2: "Escaneie o QR com a câmera: o Dokke abre já conectado.", step3: "No app Android, digite o PIN abaixo.", "pin.label": "PIN de acesso", "pin.new": "Gerar novo PIN", "addr.label": "Endereço", copy: "Copiar", noNet: "Nenhuma rede encontrada. Conecte este PC ao Wi-Fi ou à rede.", trouble: "O celular não conecta?", trouble1: "Confirme que os dois estão na mesma rede e que o Wi-Fi do PC está como rede Privada.", trouble2: "Se o Firewall bloquear, use o ícone do Dokke na bandeja → “Liberar no Firewall”.", "picker.title": "Adicionar ao dock", "picker.apps": "Apps", "picker.sites": "Sites", "picker.refresh": "Atualizar lista", "picker.search": "Buscar app…", close: "Fechar", add: "Adicionar", added: "No dock", "site.name": "Nome do site", "site.url": "https://exemplo.com", "site.add": "Adicionar site", remove: "Remover", devices0: "Nenhum aparelho conectado", devices1: "1 aparelho conectado", devicesN: "{n} aparelhos conectados", page: "Página {n}", confirmPin: "Gerar um novo PIN desconecta os aparelhos atuais. Continuar?", copied: "Endereço copiado", pinNew: "Novo PIN gerado", err: "Algo deu errado. Tente novamente.", conflict: "O dock mudou; atualizado.", limit: "O dock está cheio.", noApps: "Nenhum app encontrado.", virt: "(virtual)", slotAdd: "Adicionar ao slot {n}" },
+    en: { "tab.dock": "Dock", "tab.connect": "Connect", "dock.hint": "Drag to rearrange. Click + to add apps or websites.", step1: "Connect your phone to the same Wi-Fi network as this PC.", step2: "Scan the QR with your camera: Dokke opens already signed in.", step3: "In the Android app, enter the PIN below.", "pin.label": "Access PIN", "pin.new": "Generate new PIN", "addr.label": "Address", copy: "Copy", noNet: "No network found. Connect this PC to Wi-Fi or a network.", trouble: "Phone can't connect?", trouble1: "Make sure both are on the same network and this PC's Wi-Fi is set to Private.", trouble2: "If the Firewall blocks it, use the Dokke tray icon → “Allow in Firewall”.", "picker.title": "Add to dock", "picker.apps": "Apps", "picker.sites": "Websites", "picker.refresh": "Refresh list", "picker.search": "Search apps…", close: "Close", add: "Add", added: "In dock", "site.name": "Site name", "site.url": "https://example.com", "site.add": "Add website", remove: "Remove", devices0: "No devices connected", devices1: "1 device connected", devicesN: "{n} devices connected", page: "Page {n}", confirmPin: "A new PIN disconnects current devices. Continue?", copied: "Address copied", pinNew: "New PIN generated", err: "Something went wrong. Try again.", conflict: "The dock changed; refreshed.", limit: "The dock is full.", noApps: "No apps found.", virt: "(virtual)", slotAdd: "Add to slot {n}" }
+  };
+  function t(k, v) { var s = (T[LANG][k] != null ? T[LANG][k] : k); if (v) Object.keys(v).forEach(function (x) { s = s.replace("{" + x + "}", v[x]); }); return s; }
+  document.documentElement.lang = LANG === "pt" ? "pt-BR" : "en";
+  document.querySelectorAll("[data-i]").forEach(function (e) { e.textContent = t(e.getAttribute("data-i")); });
+  document.querySelectorAll("[data-ph]").forEach(function (e) { e.placeholder = t(e.getAttribute("data-ph")); });
+
+  var PAGE = 8, MAXP = 5;
+  var state = { pieces: [], revision: 0, running: [], page: 0, info: null, installed: null, lastUrl: "" };
+  var toastTimer = null;
+
+  function toast(msg, err) { var el = $("toast"); el.textContent = msg; el.className = "show" + (err ? " err" : ""); clearTimeout(toastTimer); toastTimer = setTimeout(function () { el.className = ""; }, 2600); }
+  function api(path, method, body) {
+    return fetch(path, { method: method || "GET", headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { status: r.status, data: d }; }); });
+  }
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+  function hue(s) { var h = 0; for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h % 360; }
+  function mono(name) { var m = el("div", "mono", (name || "?").trim().slice(0, 1).toUpperCase()); m.style.background = "hsl(" + hue(name || "") + " 55% 48%)"; return m; }
+  function appIcon(name) { var img = new Image(); img.alt = ""; img.src = "/api/apps/" + encodeURIComponent(name) + "/icon"; return img; }
+  function pieceName(p) { return p.type === "app" ? p.name : (p.title || p.url || ""); }
+
+  /* ---------- tabs ---------- */
+  function show(view) {
+    $("view-dock").classList.toggle("hidden", view !== "dock");
+    $("view-connect").classList.toggle("hidden", view !== "connect");
+    $("tab-dock").setAttribute("aria-selected", String(view === "dock"));
+    $("tab-connect").setAttribute("aria-selected", String(view === "connect"));
+    if (view === "connect") refreshInfo();
+  }
+  $("tab-dock").onclick = function () { show("dock"); };
+  $("tab-connect").onclick = function () { show("connect"); };
+
+  /* ---------- dock ---------- */
+  function renderPages() {
+    var box = $("pages"); box.textContent = "";
+    for (var i = 0; i < MAXP; i++) (function (i) {
+      var b = el("button", "b", String(i + 1)); b.setAttribute("aria-label", t("page", { n: i + 1 }));
+      if (i === state.page) b.setAttribute("aria-current", "true");
+      b.onclick = function () { state.page = i; renderGrid(); renderPages(); };
+      box.appendChild(b);
+    })(i);
+  }
+  function renderGrid() {
+    var grid = $("grid"); grid.textContent = "";
+    var running = {}; state.running.forEach(function (r) { running[r.name] = true; });
+    var byPos = {}; state.pieces.forEach(function (p) { byPos[p.position] = p; });
+    for (var i = 0; i < PAGE; i++) (function (pos) {
+      var piece = byPos[pos], slot;
+      if (!piece) {
+        slot = el("button", "slot empty", "+"); slot.type = "button"; slot.setAttribute("aria-label", t("slotAdd", { n: pos + 1 }));
+        slot.onclick = function () { openPicker(pos); };
+      } else {
+        slot = el("div", "slot piece"); slot.tabIndex = 0; slot.draggable = true; slot.dataset.id = piece.id;
+        slot.appendChild(piece.type === "app" ? appIcon(piece.name) : mono(pieceName(piece)));
+        slot.appendChild(el("div", "name", pieceName(piece)));
+        if (piece.type === "app" && running[piece.name]) slot.appendChild(el("span", "run"));
+        var x = el("button", "x", "×"); x.type = "button"; x.title = t("remove"); x.setAttribute("aria-label", t("remove") + " " + pieceName(piece));
+        x.onclick = function (e) { e.stopPropagation(); removePiece(piece); };
+        slot.appendChild(x);
+        slot.addEventListener("dragstart", function (e) { e.dataTransfer.setData("text/plain", piece.id); e.dataTransfer.effectAllowed = "move"; });
+      }
+      slot.dataset.pos = String(pos);
+      slot.addEventListener("dragover", function (e) { e.preventDefault(); slot.classList.add("over"); });
+      slot.addEventListener("dragleave", function () { slot.classList.remove("over"); });
+      slot.addEventListener("drop", function (e) { e.preventDefault(); slot.classList.remove("over"); movePiece(e.dataTransfer.getData("text/plain"), pos); });
+      grid.appendChild(slot);
+    })(state.page * PAGE + i);
+  }
+  function applyConfig(d) {
+    if (!d) return;
+    if (Array.isArray(d.pieces)) state.pieces = d.pieces;
+    if (Number.isInteger(d.revision)) state.revision = d.revision;
+  }
+  function handleError(r) {
+    var c = r && r.data && r.data.code;
+    if (c === "REVISION_CONFLICT") { toast(t("conflict"), true); if (r.data.config) applyConfig(r.data.config); renderGrid(); return; }
+    if (c === "PINNED_LIMIT_REACHED") { toast(t("limit"), true); return; }
+    toast(t("err"), true);
+  }
+  function movePiece(id, pos) {
+    if (!id) return;
+    var me = state.pieces.filter(function (p) { return p.id === id; })[0]; if (!me || me.position === pos) return;
+    var other = state.pieces.filter(function (p) { return p.position === pos; })[0];
+    var positions = {}; state.pieces.forEach(function (p) { positions[p.id] = p.position; });
+    positions[me.id] = pos; if (other) positions[other.id] = me.position;
+    api("/api/config/pieces/order", "PUT", { revision: state.revision, ids: state.pieces.map(function (p) { return p.id; }), positions: positions })
+      .then(function (r) { if (r.data.ok) { applyConfig(r.data.config); renderGrid(); } else handleError(r); });
+  }
+  function removePiece(p) {
+    api("/api/config/pieces/" + encodeURIComponent(p.id), "DELETE", { revision: state.revision })
+      .then(function (r) { if (r.data.ok) { applyConfig(r.data.config); renderGrid(); } else handleError(r); });
+  }
+  function refreshApps() {
+    return api("/api/apps").then(function (r) {
+      if (r.status !== 200) { $("dot").className = "dot"; return; }
+      applyConfig(r.data); state.running = Array.isArray(r.data.running) ? r.data.running : [];
+      renderGrid();
+    }).catch(function () { $("dot").className = "dot"; });
+  }
+
+  /* ---------- picker ---------- */
+  var pickPos = null;
+  function openPicker(pos) { pickPos = pos; $("search").value = ""; setMode("apps"); $("picker").showModal(); loadInstalled(false); $("search").focus(); }
+  function setMode(m) {
+    $("paneApps").classList.toggle("hidden", m !== "apps"); $("paneSites").classList.toggle("hidden", m !== "sites");
+    $("mApps").classList.toggle("pri", m === "apps"); $("mSites").classList.toggle("pri", m === "sites");
+    $("refresh").classList.toggle("hidden", m !== "apps");
+  }
+  $("mApps").onclick = function () { setMode("apps"); }; $("mSites").onclick = function () { setMode("sites"); };
+  $("pickerClose").onclick = function () { $("picker").close(); };
+  $("refresh").onclick = function () { loadInstalled(true); };
+  $("search").oninput = renderInstalled;
+  function loadInstalled(force) {
+    if (state.installed && !force) return renderInstalled();
+    $("appList").textContent = "…";
+    api("/api/apps/installed" + (force ? "?refresh=1" : "")).then(function (r) { state.installed = r.data.ok ? r.data.apps : []; renderInstalled(); });
+  }
+  function renderInstalled() {
+    var list = $("appList"), q = $("search").value.trim().toLowerCase(); list.textContent = "";
+    var have = {}; state.pieces.forEach(function (p) { if (p.type === "app") have[p.name] = true; });
+    var apps = (state.installed || []).filter(function (a) { return !q || a.name.toLowerCase().indexOf(q) >= 0; });
+    if (!apps.length) { list.appendChild(el("p", "hint", t("noApps"))); return; }
+    apps.forEach(function (a) {
+      var row = el("div", "item"); row.appendChild(appIcon(a.name)); row.appendChild(el("span", "t", a.name));
+      var b = el("button", "b", have[a.name] ? t("added") : t("add")); b.disabled = !!have[a.name];
+      b.onclick = function () { addApp(a.name, b); };
+      row.appendChild(b); list.appendChild(row);
+    });
+  }
+  function nextPos() { var used = {}; state.pieces.forEach(function (p) { used[p.position] = true; }); if (pickPos != null && !used[pickPos]) return pickPos; for (var i = 0; i < PAGE * MAXP; i++) if (!used[i]) return i; return null; }
+  function addApp(name, btn) {
+    var pos = nextPos(); btn.disabled = true;
+    api("/api/config/pinned", "POST", pos == null ? { app: name } : { app: name, position: pos }).then(function (r) {
+      if (r.data.ok) { applyConfig(r.data.config); renderGrid(); renderInstalled(); pickPos = null; } else { btn.disabled = false; handleError(r); }
+    });
+  }
+  $("addSite").onclick = function () {
+    var title = $("siteTitle").value.trim(), url = $("siteUrl").value.trim(), pos = nextPos();
+    var body = { type: "website", title: title, url: url }; if (pos != null) body.position = pos;
+    api("/api/config/pieces", "POST", body).then(function (r) {
+      if (r.data.ok) { applyConfig(r.data.config); renderGrid(); $("siteTitle").value = ""; $("siteUrl").value = ""; $("picker").close(); pickPos = null; } else handleError(r);
+    });
+  };
+
+  /* ---------- conectar ---------- */
+  function pairUrl() { var sel = $("addr").value, pin = state.info && state.info.pin; return sel ? sel + (pin ? "/#pin=" + pin : "") : ""; }
+  function renderConnect() {
+    var info = state.info; if (!info) return;
+    $("pin").textContent = info.pin || "----";
+    var sel = $("addr"), prev = sel.value;
+    if (info.urls.map(function (u) { return u.url; }).join() !== state.lastUrl) {
+      state.lastUrl = info.urls.map(function (u) { return u.url; }).join(); sel.textContent = "";
+      info.urls.forEach(function (u) { var o = el("option", null, u.url + "  ·  " + u.name + (u.virtual ? " " + t("virt") : "")); o.value = u.url; sel.appendChild(o); });
+      if (prev && info.urls.some(function (u) { return u.url === prev; })) sel.value = prev;
+    }
+    $("noNet").hidden = info.urls.length > 0;
+    var text = pairUrl();
+    $("qr").innerHTML = text ? DokkeQR.svg(text, { margin: 2 }) : "";
+    var n = info.devices || 0;
+    $("devices").textContent = n === 0 ? t("devices0") : n === 1 ? t("devices1") : t("devicesN", { n: n });
+    $("dot").className = "dot on";
+  }
+  function refreshInfo() { return api("/api/host/info").then(function (r) { if (r.data && r.data.ok) { state.info = r.data; renderConnect(); } }).catch(function () { $("dot").className = "dot"; }); }
+  $("addr").onchange = renderConnect;
+  $("copy").onclick = function () { var u = $("addr").value; if (u && navigator.clipboard) navigator.clipboard.writeText(u).then(function () { toast(t("copied")); }); };
+  $("newPin").onclick = function () {
+    if (!confirm(t("confirmPin"))) return;
+    api("/api/pin", "POST", {}).then(function (r) { if (r.data.ok) { toast(t("pinNew")); refreshInfo(); } else toast(t("err"), true); });
+  };
+
+  /* ---------- ciclo ---------- */
+  function tick() { if (document.visibilityState !== "visible") return; refreshApps(); refreshInfo(); }
+  renderPages(); renderGrid();
+  Promise.all([refreshApps(), refreshInfo()]).then(function () { if (!state.pieces.length) show("connect"); });
+  setInterval(tick, 3000);
+  document.addEventListener("visibilitychange", tick);
+})();
+</script>
+</body>
+</html>

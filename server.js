@@ -1,0 +1,1311 @@
+import { createServer } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
+import { createSocket } from "node:dgram";
+import { networkInterfaces } from "node:os";
+import { mkdirSync, existsSync, copyFileSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { join, extname, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+
+function tryReadCert(envPath) {
+  try { return readFileSync(envPath); } catch { return null; }
+}
+
+function makeServer() {
+  const certPath = process.env.HTTPS_CERT;
+  const keyPath = process.env.HTTPS_KEY;
+  if (certPath && keyPath) {
+    const cert = tryReadCert(certPath);
+    const key = tryReadCert(keyPath);
+    if (cert && key) {
+      return createHttpsServer({ cert, key });
+    }
+  }
+  return createServer();
+}
+import { createPlatform } from "./platform/index.js";
+import { isSvg } from "./icons.js";
+import { isAllowedRemoteAddress, isVirtualInterfaceName, listLanUrls } from "./network.js";
+import {
+  loadConfig,
+  saveConfig,
+  normalizePinned,
+  normalizeConfig,
+  createWebsitePiece,
+  createShortcutPiece,
+  piecesToPinned,
+  normalizePieces,
+  materializePiecePositions,
+  firstAvailablePiecePosition,
+  MAX_PINNED_APPS,
+  MAX_PINNED_PIECES,
+  MAX_DOCK_SLOTS,
+  PINNED_LIMIT_CODE,
+  PINNED_LIMIT_MESSAGE,
+  pinnedLimits,
+} from "./config.js";
+import { connectOBS } from "./obs-ws.js";
+import { ensurePin, newPin, isLoopback, sessionCookie, tokenFromCookie, clearLegacyPinCookie, createSessionStore, createPinLocks, safeEqual, writePinFile } from "./auth.js";
+import { WebSocketServer } from "ws";
+
+const MIME = { ".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".json": "application/json", ".webmanifest": "application/manifest+json", ".png": "image/png", ".webp": "image/webp", ".svg": "image/svg+xml", ".otf": "font/otf", ".apk": "application/vnd.android.package-archive" };
+const BODY_TOO_BIG = Symbol("BODY_TOO_BIG");
+const BODY_INVALID = Symbol("BODY_INVALID");
+/** Limite de body dos endpoints — reorder do dock com muitos apps passa fácil de 1KB. */
+const BODY_MAX_BYTES = 64 * 1024;
+/** Anti-bruteforce do pin: 5 falhas → lock 60s por IP (podado a cada registro). */
+const PIN_MAX_FAILS = 5;
+const PIN_LOCK_MS = 60_000;
+const pinLocks = createPinLocks({ maxFails: PIN_MAX_FAILS, lockMs: PIN_LOCK_MS });
+const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+/** Ping de client força broadcast — limitado por conexão pra não virar amplificador. */
+const PING_MIN_INTERVAL_MS = 1500;
+/** Detecta conexões WebSocket quebradas sem adicionar tráfego HTTP. */
+const WS_HEARTBEAT_MS = 30_000;
+
+/** Cloudflared termina HTTPS fora do Mac e conecta ao Dokke por loopback HTTP.
+ * Só confiamos no protocolo encaminhado quando o próprio proxy é local. */
+function isTrustedHttpsProxyRequest(req) {
+  if (!isLoopback(req.socket.remoteAddress)) return false;
+  const forwardedProto = req.headers["x-forwarded-proto"];
+  const protocol = (Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto)
+    ?.split(",", 1)[0]
+    ?.trim()
+    .toLowerCase();
+  return protocol === "https";
+}
+
+function isSecureRequest(req) {
+  return Boolean(req.socket.encrypted) || isTrustedHttpsProxyRequest(req);
+}
+
+/** Origin ausente é permitido para clientes nativos; Origin presente precisa
+ * ser exatamente a origem que atendeu a conexão (protocolo + host + porta). */
+function sameOrigin(req) {
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  try {
+    const protocol = isSecureRequest(req) ? "https:" : "http:";
+    if (!req.headers.host) return false;
+    const serverOrigin = new URL(`${protocol}//${req.headers.host}`).origin;
+    return new URL(origin).origin === serverOrigin;
+  } catch {
+    return false;
+  }
+}
+
+/** A listagem só é usada pelo picker macOS. O cabeçalho dedicado distingue a
+ * URLSession nativa de GETs induzidos por páginas, mesmo sem Fetch Metadata. */
+function trustedShortcutsPickerRequest(req) {
+  if (!isTrustedLoopbackRequest(req)) return false;
+  if (req.headers["x-dokke-client"] !== "dokke-macos-picker") return false;
+  if (!sameOrigin(req)) return false;
+  const fetchSite = req.headers["sec-fetch-site"];
+  if (fetchSite && fetchSite !== "same-origin" && fetchSite !== "none") return false;
+  return req.headers["sec-fetch-mode"] !== "no-cors";
+}
+
+/** Host também precisa apontar para loopback antes de confiar no socket local.
+ * Isso impede que DNS rebinding use um Host/Origin externo para herdar a
+ * exceção de autenticação do próprio Mac. */
+function requestHostIsLoopback(req) {
+  const host = req.headers.host;
+  if (typeof host !== "string" || /[\\/@?#\s]/.test(host)) return false;
+  try {
+    const url = new URL(`http://${host}`);
+    if (url.username || url.password || url.pathname !== "/" || url.search || url.hash) return false;
+    const hostname = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    return hostname === "localhost" || hostname === "localhost." || isLoopback(hostname);
+  } catch {
+    return false;
+  }
+}
+
+function isTrustedLoopbackRequest(req) {
+  return isLoopback(req.socket.remoteAddress) && requestHostIsLoopback(req);
+}
+
+// versão publicada no GitHub (releases/latest) — stale-while-revalidate; nunca bloqueia o request
+// usa redirect da URL pública (sem API → sem rate limit)
+const VERSION_CACHE_MS = 10 * 60 * 1000;
+const versionCache = { value: null, age: 0, refreshing: null };
+async function refreshVersion() {
+  if (versionCache.refreshing) return versionCache.refreshing;
+  versionCache.refreshing = (async () => {
+    let timer = null;
+    try {
+      const ctrl = new AbortController();
+      timer = setTimeout(() => ctrl.abort(), 5000);
+      const r = await fetch("https://github.com/felipenalves/Dokke/releases/latest",
+        { redirect: "manual", signal: ctrl.signal });
+      const loc = r.headers.get("location") || "";
+      const m = loc.match(/\/releases\/tag\/([^/]+)$/);
+      if (!m) return;
+      versionCache.value = {
+        tag: m[1],
+        htmlUrl: "https://github.com/felipenalves/Dokke/releases/tag/" + m[1],
+        apkUrl: "https://github.com/felipenalves/Dokke/releases/latest/download/dokke.apk",
+      };
+      versionCache.age = Date.now();
+    } catch {
+    } finally {
+      if (timer) clearTimeout(timer);
+      versionCache.refreshing = null;
+    }
+  })();
+  return versionCache.refreshing;
+}
+refreshVersion();
+
+function latestVersionSnapshot() {
+  if (!versionCache.age || Date.now() - versionCache.age >= VERSION_CACHE_MS) {
+    refreshVersion();
+  }
+  return versionCache.value;
+}
+
+const SEC_HEADERS = {
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+};
+
+/** Respostas JSON de API — nunca podem ser cacheadas (dados em tempo real).
+ *  Sem isso o browser/WebView pode cachear GET /api/* heuristicamente. */
+const JSON_HEADERS = {
+  "Content-Type": "application/json",
+  "Cache-Control": "no-store",
+  ...SEC_HEADERS,
+};
+
+/** Detalhe fica no log do servidor; o cliente recebe mensagem genérica. */
+function fail(res, err, extra = {}) {
+  console.error("[dokke] erro interno:", err?.message ?? err);
+  res.writeHead(500, JSON_HEADERS);
+  res.end(JSON.stringify({ ok: false, error: "erro interno", ...extra }));
+}
+
+function readBody(req, res) {
+  return new Promise(resolve => {
+    let body = "";
+    let big = false;
+    req.on("data", c => {
+      if (big) return;
+      body += c;
+      if (Buffer.byteLength(body, "utf8") > BODY_MAX_BYTES) {
+        big = true;
+        res.writeHead(413, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error: "corpo grande demais" }));
+      }
+    });
+    req.on("end", () => {
+      if (big) return resolve(BODY_TOO_BIG);
+      try { resolve(JSON.parse(body || "{}")); } catch { resolve(BODY_INVALID); }
+    });
+  });
+}
+
+// Estado dos apps precisa parecer instantâneo na tela 2. O lsappinfo tem cache
+// próprio de 1,5 s em apps.js, então este intervalo não cria um fork por frame.
+const STATUS_POLL_MS = 1500;
+
+/**
+ * Descoberta automática de servidor (UDP broadcast) — o APK Android manda
+ * "dokke:discover" em 255.255.255.255 e o servidor responde com seu IP:porta.
+ * Assim o device acha o Mac mesmo quando o DHCP troca o IP (queda de luz,
+ * reinício de roteador). Zero deps — dgram é builtin do Node.
+ */
+const DISCOVERY_PORT = 3001;
+export const DISCOVERY_MAGIC = "dokke:discover";
+
+function ipv4ToInt(ip) {
+  if (typeof ip !== "string" || !/^\d{1,3}(?:\.\d{1,3}){3}$/.test(ip)) return null;
+  const parts = ip.split(".").map(Number);
+  if (parts.some(p => p < 0 || p > 255)) return null;
+  return ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0;
+}
+
+function inSubnet(ip, addr, mask) {
+  const a = ipv4ToInt(ip), b = ipv4ToInt(addr), m = ipv4ToInt(mask);
+  if (a == null || b == null || m == null) return false;
+  const inverseMask = (~m) >>> 0;
+  if (m === 0 || (inverseMask & (inverseMask + 1)) !== 0) return false;
+  return ((a & m) >>> 0) === ((b & m) >>> 0);
+}
+
+/** Só considera IPv4 da mesma sub-rede em Ethernet/Wi-Fi do Mac. VPNs,
+ * loopback, endereços encaminhados e X-Forwarded-For não ampliam essa exceção. */
+export function isAddressOnLocalNetwork(peerAddress, interfaces = networkInterfaces()) {
+  const address = typeof peerAddress === "string" && peerAddress.toLowerCase().startsWith("::ffff:")
+    ? peerAddress.slice(7)
+    : peerAddress;
+  if (ipv4ToInt(address) == null || isLoopback(address)) return false;
+
+  return Object.entries(interfaces ?? {}).some(([name, infos]) => {
+    if (process.platform === "darwin" ? !/^en\d+$/i.test(name) : isVirtualInterfaceName(name)) return false;
+    return (infos ?? []).some(info =>
+      (info.family === "IPv4" || info.family === 4) &&
+      !info.internal &&
+      inSubnet(address, info.address, info.netmask)
+    );
+  });
+}
+
+/** IP da interface que está na mesma rede do cliente (Wi-Fi, Ethernet, Tailscale…). */
+function localIpFor(peerIp) {
+  for (const infos of Object.values(networkInterfaces())) {
+    for (const info of infos ?? []) {
+      if (info.family !== "IPv4" || info.internal) continue;
+      if (inSubnet(peerIp, info.address, info.netmask)) return info.address;
+    }
+  }
+  // fallback: primeira IPv4 não-interna (cobre 127.0.0.1 em testes)
+  for (const infos of Object.values(networkInterfaces())) {
+    for (const info of infos ?? []) {
+      if (info.family === "IPv4" && !info.internal) return info.address;
+    }
+  }
+  return null;
+}
+
+/** Sobe o listener UDP que responde "dokke:<ip>:<porta>" pra quem perguntar. */
+export function startDiscovery(port = DISCOVERY_PORT, { portHint = 3000, log = console.log } = {}) {
+  const sock = createSocket("udp4");
+  sock.on("message", (msg, rinfo) => {
+    if (msg.toString("utf8").trim() !== DISCOVERY_MAGIC) return;
+    const ip = localIpFor(rinfo.address);
+    if (!ip) return;
+    const reply = `dokke:${ip}:${portHint}`;
+    sock.send(reply, rinfo.port, rinfo.address);
+    log(`[discover] ${rinfo.address}:${rinfo.port} → ${reply}`);
+  });
+  sock.on("error", e => log(`[discover] erro: ${e.message}`));
+  sock.bind(port, () => { sock.setBroadcast(true); });
+  return sock;
+}
+
+/** Versão do index.html (mtime+size) — o cliente recarrega sozinho quando
+ *  o servidor sobe uma UI nova, mesmo com a página aberta há horas no kiosk. */
+function uiVersion(root) {
+  try {
+    const st = statSync(join(root, "index.html"));
+    return "v" + Math.floor(st.mtimeMs / 1000).toString(36) + "-" + st.size.toString(36);
+  } catch (e) {
+    return "v0";
+  }
+}
+
+/**
+ * Feed de status via WebSocket: um único tracker no servidor empurra
+ * { type:"apps", pinned, running } pra todos os clients quando muda.
+ * Elimina o polling HTTP do device (menos rádio/CPU/bateria no J5).
+ */
+function createStatusFeed({ readConfig, listProcesses, version = null }) {
+  const clients = new Set();
+  let timer = null;
+  let last = "";
+  function sendTo(ws, data) {
+    if (ws.readyState === 1) { try { ws.send(JSON.stringify(data)); } catch (e) {} }
+  }
+  async function broadcast(force) {
+    // force=true sempre monta payload (pin do Mac precisa empurrar mesmo com 0 clients? não — sem clients não há o que empurrar;
+    // mas last deve invalidar pra próximo client pegar fresco)
+    if (!clients.size && !force) return;
+    let cfg = normalizeConfig({});
+    try { cfg = await readConfig(); } catch (e) {}
+    cfg = normalizeConfig(cfg);
+    let running = [];
+    try { running = await listProcesses(); } catch (e) {}
+    if (!Array.isArray(running)) running = [];
+    const payload = {
+      type: "apps",
+      pieces: cfg.pieces,
+      revision: cfg.revision,
+      pinned: cfg.pinned,
+      running,
+      devices: clients.size,
+      ...(version ? { v: version() } : {}),
+      limits: pinnedLimits(),
+    };
+    const encoded = JSON.stringify(payload);
+    if (!force && encoded === last) return;
+    last = encoded;
+    if (!clients.size) return;
+    for (const ws of clients) sendTo(ws, payload);
+  }
+  return {
+    addClient(ws) {
+      clients.add(ws);
+      ws.on("close", () => {
+        clients.delete(ws);
+        if (!clients.size && timer) { clearInterval(timer); timer = null; last = ""; }
+      });
+      ws.on("error", () => {});
+      sendTo(ws, { type: "online", online: true, devices: clients.size, ...(version ? { v: version() } : {}) });
+      broadcast(true);
+      if (!timer) {
+        timer = setInterval(() => broadcast(false), STATUS_POLL_MS);
+        if (timer.unref) timer.unref();
+      }
+    },
+    /** Empurra já (ex.: pin/unpin do Mac → device em <1s, sem esperar poll de 6s). */
+    ping() { return broadcast(true); },
+    clientCount() { return clients.size; },
+    close() {
+      if (timer) { clearInterval(timer); timer = null; }
+      for (const ws of clients) sendTo(ws, { type: "online", online: false });
+      clients.clear();
+    },
+  };
+}
+
+let cachedPackageVersion = null;
+function packageVersion() {
+  if (cachedPackageVersion) return cachedPackageVersion;
+  try { cachedPackageVersion = JSON.parse(readFileSync(join(import.meta.dirname, "package.json"), "utf8")).version ?? "0.0.0"; }
+  catch { cachedPackageVersion = "0.0.0"; }
+  return cachedPackageVersion;
+}
+
+export function makeApp(deps = {}) {
+  const {
+    root = join(import.meta.dirname, "public"),
+    obs = null,
+    onStatusChange = null,
+    getDeviceCount = null,
+    isLocalNetworkRequest = req => isAddressOnLocalNetwork(req.socket.remoteAddress),
+  } = deps;
+  // Plataforma criada sob demanda: testes que injetam tudo não tocam no sistema.
+  let lazyPlatform = null;
+  const plat = () => (lazyPlatform ??= createPlatform({ dataDir: deps.dataDir }));
+  const appTools = deps.appTools ?? {
+    listAppProcesses: (...a) => plat().appTools.listAppProcesses(...a),
+    listInstalledApps: (...a) => plat().appTools.listInstalledApps(...a),
+  };
+  const actions = deps.actions ?? {
+    activateApp: (...a) => plat().actions.activateApp(...a),
+    openWebsite: (...a) => plat().actions.openWebsite(...a),
+    listShortcuts: (...a) => plat().actions.listShortcuts(...a),
+    runShortcut: (...a) => plat().actions.runShortcut(...a),
+  };
+  const iconService = deps.iconService ?? { getIconPng: name => plat().iconService.getIconPng(name) };
+  const allowRemote = deps.allowRemote ?? (req => process.env.DOKKE_ALLOW_PUBLIC === "1" || isAllowedRemoteAddress(req.socket?.remoteAddress));
+  const configFile = deps.configFile ?? (deps.config === undefined ? join(import.meta.dirname, "config.json") : null);
+  const readConfig = async () => {
+    if (configFile) return loadConfig(configFile);
+    return normalizeConfig(deps.config || {});
+  };
+  const appVersion = deps.version || (() => uiVersion(root));
+  const persistConfig = async cfg => {
+    const safe = normalizeConfig(cfg);
+    if (configFile) await saveConfig(configFile, safe);
+    else if (deps.config) Object.assign(deps.config, safe);
+    return safe;
+  };
+  // serializa load→mutate→persist das mutações de pinned: POSTs concorrentes
+  // não perdem update nem colidem no arquivo de config
+  let configQueue = Promise.resolve();
+  const withConfigLock = fn => {
+    const run = configQueue.then(fn);
+    configQueue = run.catch(() => {});
+    return run;
+  };
+  const handler = (req, res) => {
+    const url = new URL(req.url, "http://x");
+    const ok = body => { res.writeHead(200, JSON_HEADERS); res.end(JSON.stringify(body)); };
+    if (!allowRemote(req)) {
+      res.writeHead(403, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: "acesso negado" }));
+      return;
+    }
+    if (STATE_CHANGING_METHODS.has(req.method) && !sameOrigin(req)) {
+      res.writeHead(403, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: "Origin não permitido" }));
+      return;
+    }
+    // config que o cliente pode ver — nunca vaza o pin (só o dono lê via /api/pin)
+    const publicCfg = cfg => {
+      const safe = normalizeConfig(cfg);
+      return {
+        schemaVersion: safe.schemaVersion,
+        revision: safe.revision,
+        pieces: safe.pieces,
+        pinned: safe.pinned,
+        limits: pinnedLimits(),
+      };
+    };
+    const respondError = (status, body) => {
+      res.writeHead(status, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, ...body }));
+    };
+    const rejectRevision = cfg => respondError(409, {
+      code: "REVISION_CONFLICT",
+      error: "a configuração mudou; recarregue e tente novamente",
+      config: publicCfg(cfg),
+    });
+    const rejectMixedLegacy = cfg => respondError(409, {
+      code: "MIXED_PIECES_REQUIRES_NEW_CLIENT",
+      error: "essa configuração mista exige um cliente atualizado",
+      config: publicCfg(cfg),
+    });
+    const isSameOrder = (left, right) => left.length === right.length && left.every((id, i) => id === right[i]);
+    const configHasNonAppPieces = cfg => cfg.pieces.some(piece => piece.type !== "app");
+    const piecesResponse = (cfg, piece = null, added = undefined) => ({
+      ok: true,
+      ...(piece ? { piece } : {}),
+      ...(added === undefined ? {} : { added }),
+      config: publicCfg(cfg),
+    });
+    const rejectPinnedLimit = () => {
+      respondError(409, {
+        code: PINNED_LIMIT_CODE,
+        error: PINNED_LIMIT_MESSAGE,
+        limits: pinnedLimits(),
+      });
+    };
+    const readPiecePosition = body => {
+      if (body?.position === undefined) return { ok: true, position: null };
+      if (!Number.isInteger(body.position) || body.position < 0 || body.position >= MAX_DOCK_SLOTS) {
+        return { ok: false };
+      }
+      return { ok: true, position: body.position };
+    };
+    if (url.pathname === "/health") { res.writeHead(200, JSON_HEADERS); res.end(JSON.stringify({ ok: true, service: "Dokke" })); return; }
+    if (url.pathname === "/api/probe") {
+      const flags = Object.fromEntries(url.searchParams);
+      console.log("[probe]", JSON.stringify({ ua: req.headers["user-agent"], ...flags }));
+      res.writeHead(204); res.end(); return;
+    }
+    if (url.pathname === "/api/version" && req.method === "GET") {
+      // versão local (embutida no server) + versão publicada no GitHub — info pública
+      let local = { tag: "v0.0.0", apkVersion: "0.0.0" };
+      try {
+        const raw = readFileSync(join(root, "version.json"), "utf8");
+        local = JSON.parse(raw);
+      } catch {}
+      ok({ ok: true, local, latest: latestVersionSnapshot() });
+      return;
+    }
+    // ---------- auth: pin de 4 dígitos (gate do kiosk da LAN) ----------
+    // cookie carrega token de sessão opaco — o PIN nunca trafega de volta
+    const trustLoopback = deps.trustLoopback !== false;
+    const auth = deps.auth;
+    const ipOf = req.socket.remoteAddress || "?";
+    const authed = () =>
+      (trustLoopback && isTrustedLoopbackRequest(req)) ||
+      (!!auth && typeof auth.checkSession === "function" && auth.checkSession(tokenFromCookie(req.headers.cookie)));
+    if (auth && url.pathname === "/api/auth" && req.method === "POST") {
+      if (isLoopback(ipOf) && !requestHostIsLoopback(req) && !isSecureRequest(req)) {
+        res.writeHead(403, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error: "origem não permitida" }));
+        return;
+      }
+      readBody(req, res).then(body => {
+        if (body === BODY_TOO_BIG || body === BODY_INVALID) {
+          res.writeHead(400, JSON_HEADERS);
+          res.end(JSON.stringify({ ok: false, error: "corpo inválido" }));
+          return;
+        }
+        const given = typeof body?.pin === "string" ? body.pin.trim() : "";
+        if (given === "") {
+          res.writeHead(400, JSON_HEADERS);
+          res.end(JSON.stringify({ ok: false, error: "código vazio" }));
+          return;
+        }
+        if (pinLocks.isLocked(ipOf)) {
+          res.writeHead(429, JSON_HEADERS);
+          res.end(JSON.stringify({ ok: false, error: "muitas tentativas — aguarde" }));
+          return;
+        }
+        if (safeEqual(given, auth.getPin())) {
+          pinLocks.reset(ipOf);
+          Promise.resolve()
+            .then(() => auth.issueSession())
+            .then(token => {
+              res.writeHead(200, {
+                "Content-Type": "application/json",
+                // dois Set-Cookie: sessão nova + apaga legado que carregava o PIN
+                "Set-Cookie": [
+                  sessionCookie(token, { secure: isSecureRequest(req) }),
+                  clearLegacyPinCookie(),
+                ],
+                ...SEC_HEADERS,
+              });
+              res.end(JSON.stringify({ ok: true }));
+            })
+            .catch(err => fail(res, err));
+          return;
+        }
+        pinLocks.register(ipOf);
+        res.writeHead(401, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error: "código inválido" }));
+      });
+      return;
+    }
+    if (auth && url.pathname === "/api/pin") {
+      // só o dono (loopback) lê/regenera — atacante na LAN não descobre o pin
+      if (!isTrustedLoopbackRequest(req)) {
+        res.writeHead(403, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error: "acesso negado" }));
+        return;
+      }
+      if (req.method === "POST") {
+        Promise.resolve()
+          .then(async () => { const p = newPin(); await auth.setPin(p); return p; })
+          .then(p => ok({ ok: true, pin: p }))
+          .catch(err => fail(res, err));
+        return;
+      }
+      ok({ ok: true, pin: auth.getPin() });
+      return;
+    }
+    if (url.pathname === "/api/host/info" && req.method === "GET") {
+      // só o dono (loopback): inclui o PIN para montar o QR de pareamento
+      if (!isTrustedLoopbackRequest(req)) {
+        res.writeHead(403, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error: "acesso negado" }));
+        return;
+      }
+      const port = req.socket.localPort;
+      ok({
+        ok: true,
+        pin: auth ? auth.getPin() : null,
+        port,
+        urls: listLanUrls(port),
+        version: packageVersion(),
+        devices: getDeviceCount ? getDeviceCount() : 0,
+        platform: process.platform,
+      });
+      return;
+    }
+    // wall: todo /api/* exige cookie válido — loopback do Mac (dono) passa
+    if (url.pathname.startsWith("/api/") && !authed()) {
+      res.writeHead(401, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: "acesso negado" }));
+      return;
+    }
+    if (url.pathname === "/api/apps") {
+      Promise.resolve()
+        .then(() => readConfig())
+        .then(cfg => appTools.listAppProcesses()
+          .then(running => ok({ pieces: cfg.pieces, revision: cfg.revision, pinned: cfg.pinned, running, v: appVersion(), limits: pinnedLimits() }))
+          .catch(() => ok({ pieces: cfg.pieces, revision: cfg.revision, pinned: cfg.pinned, running: [], v: appVersion(), limits: pinnedLimits() })))
+        .catch(err => fail(res, err));
+      return;
+    }
+    if (url.pathname === "/api/config") {
+      Promise.resolve()
+        .then(() => readConfig())
+        .then(cfg => ok({ ok: true, config: publicCfg(cfg) }))
+        .catch(err => fail(res, err));
+      return;
+    }
+    if (url.pathname === "/api/shortcuts" && req.method === "GET") {
+      if (!trustedShortcutsPickerRequest(req)) {
+        res.writeHead(403, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error: "Origin não permitido" }));
+        return;
+      }
+      Promise.resolve()
+        .then(() => actions.listShortcuts())
+        .then(shortcuts => {
+          if (!Array.isArray(shortcuts) || shortcuts.some(name => typeof name !== "string")) {
+            throw new TypeError("lista de atalhos inválida");
+          }
+          ok({ ok: true, shortcuts: [...new Set(shortcuts.map(name => name.trim()).filter(Boolean))] });
+        })
+        .catch(err => fail(res, err));
+      return;
+    }
+    // POST = adiciona um; PUT = substitui a lista inteira (app Mac / bulk)
+    if (url.pathname === "/api/config/pinned" && (req.method === "POST" || req.method === "PUT")) {
+      readBody(req, res).then(body => {
+        if (body === BODY_TOO_BIG) return;
+        if (body === BODY_INVALID) {
+          res.writeHead(400, JSON_HEADERS);
+          res.end(JSON.stringify({ ok: false, error: "corpo inválido" }));
+          return;
+        }
+        if (req.method === "PUT") {
+          const list = body?.apps ?? body?.pinned;
+          if (!Array.isArray(list)) {
+            res.writeHead(400, JSON_HEADERS);
+            res.end(JSON.stringify({ ok: false, error: "apps deve ser array" }));
+            return;
+          }
+          const pinned = normalizePinned(list);
+          if (pinned.length > MAX_PINNED_APPS) {
+            rejectPinnedLimit();
+            return;
+          }
+          withConfigLock(() => Promise.resolve()
+            .then(() => readConfig())
+            .then(cfg => {
+              if (configHasNonAppPieces(cfg)) {
+                rejectMixedLegacy(cfg);
+                return null;
+              }
+              const nextPieces = materializePiecePositions(pinned.map(name => ({ id: `app:${name}`, type: "app", name })));
+              const changed = !isSameOrder(cfg.pieces.map(piece => piece.id), nextPieces.map(piece => piece.id));
+              if (changed) {
+                cfg.pieces = nextPieces;
+                cfg.revision += 1;
+              }
+              return persistConfig(cfg).then(next => ({ cfg: next, changed }));
+            })
+            .then(result => {
+              if (!result) return;
+              ok({ ok: true, config: publicCfg(result.cfg), pushed: true });
+              if (result.changed && onStatusChange) onStatusChange();
+            })
+            .catch(err => fail(res, err)));
+          return;
+        }
+        const app = typeof body?.app === "string" ? body.app.trim() : "";
+        if (app === "") {
+          res.writeHead(400, JSON_HEADERS);
+          res.end(JSON.stringify({ ok: false, error: "app inválido" }));
+          return;
+        }
+        const positionResult = readPiecePosition(body);
+        if (!positionResult.ok) {
+          respondError(400, { code: "INVALID_PIECE_POSITION", error: "posição inválida" });
+          return;
+        }
+        withConfigLock(() => Promise.resolve()
+          .then(() => readConfig())
+          .then(cfg => {
+            const existing = cfg.pieces.find(piece => piece.type === "app" && piece.name === app);
+            if (!existing) {
+              if (cfg.pieces.length >= MAX_PINNED_PIECES) {
+                const err = new Error(PINNED_LIMIT_MESSAGE);
+                err.code = PINNED_LIMIT_CODE;
+                throw err;
+              }
+              cfg.pieces = materializePiecePositions(cfg.pieces);
+              const position = positionResult.position ?? firstAvailablePiecePosition(cfg.pieces);
+              if (position === null || cfg.pieces.some(piece => piece.position === position)) {
+                const err = new Error("posição do dock já está ocupada");
+                err.code = "PIECE_SLOT_OCCUPIED";
+                throw err;
+              }
+              cfg.pieces.push({ id: `app:${app}`, type: "app", name: app, position });
+              cfg.revision += 1;
+            }
+            return persistConfig(cfg).then(next => ({ cfg: next, changed: !existing }));
+          })
+          .then(result => {
+            ok({ ok: true, config: publicCfg(result.cfg), pushed: true });
+            if (result.changed && onStatusChange) onStatusChange();
+          })
+          .catch(err => {
+            if (err?.code === PINNED_LIMIT_CODE) rejectPinnedLimit();
+            else if (err?.code === "PIECE_SLOT_OCCUPIED") respondError(409, { code: err.code, error: err.message });
+            else fail(res, err);
+          }));
+      });
+      return;
+    }
+    const unpin = url.pathname.match(/^\/api\/config\/pinned\/([^/]+)$/);
+    if (unpin && req.method === "DELETE") {
+      let app;
+      try { app = decodeURIComponent(unpin[1]); }
+      catch {
+        res.writeHead(400, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error: "nome inválido" }));
+        return;
+      }
+      app = typeof app === "string" ? app.trim() : "";
+      withConfigLock(() => Promise.resolve()
+        .then(() => readConfig())
+        .then(cfg => {
+          const pieces = materializePiecePositions(cfg.pieces)
+            .filter(piece => !(piece.type === "app" && piece.name === app));
+          const changed = pieces.length !== cfg.pieces.length;
+          if (changed) {
+            cfg.pieces = pieces;
+            cfg.revision += 1;
+          }
+          return persistConfig(cfg).then(next => ({ cfg: next, changed }));
+        })
+        .then(result => {
+          ok({ ok: true, config: publicCfg(result.cfg), pushed: true });
+          if (result.changed && onStatusChange) onStatusChange();
+        })
+        .catch(err => fail(res, err)));
+      return;
+    }
+    if (url.pathname === "/api/config/pieces" && req.method === "POST") {
+      readBody(req, res).then(body => {
+        if (body === BODY_TOO_BIG) return;
+        if (body === BODY_INVALID) {
+          respondError(400, { code: "INVALID_WEBSITE", error: "peça de site inválida" });
+          return;
+        }
+        let piece;
+        if (body?.type === "website") {
+          try { piece = createWebsitePiece(body.title, body.url); }
+          catch (err) {
+            respondError(400, { code: "INVALID_WEBSITE", error: err?.message || "URL inválida" });
+            return;
+          }
+        } else if (body?.type === "shortcut") {
+          if (!trustedShortcutsPickerRequest(req)) {
+            respondError(403, {
+              code: "SHORTCUT_PICKER_REQUIRED",
+              error: "atalhos só podem ser adicionados pelo picker local do Mac",
+            });
+            return;
+          }
+          try { piece = createShortcutPiece(body.name, body.emoji); }
+          catch (err) {
+            respondError(400, { code: "INVALID_SHORTCUT", error: err?.message || "nome do atalho inválido" });
+            return;
+          }
+        } else {
+          respondError(400, { code: "INVALID_WEBSITE", error: "peça de site inválida" });
+          return;
+        }
+        const positionResult = readPiecePosition(body);
+        if (!positionResult.ok) {
+          respondError(400, { code: "INVALID_PIECE_POSITION", error: "posição inválida" });
+          return;
+        }
+        const shortcutAvailability = piece.type === "shortcut"
+          ? Promise.resolve().then(() => actions.listShortcuts()).then(shortcuts => {
+            if (!Array.isArray(shortcuts) || !shortcuts.includes(piece.name)) {
+              const err = new Error("atalho não encontrado no Mac");
+              err.code = "SHORTCUT_NOT_FOUND";
+              throw err;
+            }
+          })
+          : Promise.resolve();
+        shortcutAvailability.then(() => withConfigLock(() => Promise.resolve()
+          .then(() => readConfig())
+          .then(cfg => {
+            const existing = cfg.pieces.find(current => current.id === piece.id);
+            if (existing) return { cfg, piece: existing, added: false };
+            if (cfg.pieces.length >= MAX_PINNED_PIECES) {
+              const err = new Error(PINNED_LIMIT_MESSAGE);
+              err.code = PINNED_LIMIT_CODE;
+              throw err;
+            }
+            cfg.pieces = materializePiecePositions(cfg.pieces);
+            const position = positionResult.position ?? firstAvailablePiecePosition(cfg.pieces);
+            if (position === null || cfg.pieces.some(current => current.position === position)) {
+              const err = new Error("posição do dock já está ocupada");
+              err.code = "PIECE_SLOT_OCCUPIED";
+              throw err;
+            }
+            piece = { ...piece, position };
+            cfg.pieces.push(piece);
+            cfg.revision += 1;
+            return persistConfig(cfg).then(next => ({ cfg: next, piece, added: true }));
+          })
+          .then(result => {
+            ok(piecesResponse(result.cfg, result.piece, result.added));
+            if (result.added && onStatusChange) onStatusChange();
+          })
+          .catch(err => {
+            if (err?.code === PINNED_LIMIT_CODE) rejectPinnedLimit();
+            else if (err?.code === "PIECE_SLOT_OCCUPIED") respondError(409, { code: err.code, error: err.message });
+            else if (err?.code === "SHORTCUT_NOT_FOUND") respondError(404, { code: err.code, error: err.message });
+            else fail(res, err);
+          })))
+          .catch(err => {
+            if (err?.code === "SHORTCUT_NOT_FOUND") respondError(404, { code: err.code, error: err.message });
+            else fail(res, err);
+          });
+      });
+      return;
+    }
+    if (url.pathname === "/api/config/pieces/order" && req.method === "PUT") {
+      readBody(req, res).then(body => {
+        if (body === BODY_TOO_BIG) return;
+        if (body === BODY_INVALID || !Number.isInteger(body?.revision) || !Array.isArray(body?.ids)) {
+          respondError(400, { code: "INVALID_REQUEST", error: "revisão e ids são obrigatórios" });
+          return;
+        }
+        withConfigLock(() => Promise.resolve()
+          .then(() => readConfig())
+          .then(cfg => {
+            if (body.revision !== cfg.revision) {
+              rejectRevision(cfg);
+              return null;
+            }
+            cfg.pieces = materializePiecePositions(cfg.pieces);
+            const ids = body.ids;
+            const currentIds = cfg.pieces.map(piece => piece.id);
+            const unique = new Set(ids);
+            if (ids.length !== currentIds.length || unique.size !== ids.length || ids.some(id => !unique.has(id)) ||
+                currentIds.some(id => !unique.has(id))) {
+              respondError(400, { code: "INVALID_REQUEST", error: "ids não correspondem às peças atuais" });
+              return null;
+            }
+            const requestedPositions = body.positions;
+            if (requestedPositions !== undefined &&
+                (!requestedPositions || typeof requestedPositions !== "object" || Array.isArray(requestedPositions))) {
+              respondError(400, { code: "INVALID_REQUEST", error: "positions devem ser um objeto de posições por ID" });
+              return null;
+            }
+            if (requestedPositions !== undefined) {
+              const entries = Object.entries(requestedPositions);
+              const values = entries.map(([, position]) => position);
+              const positionIds = new Set(entries.map(([id]) => id));
+              if (entries.length !== currentIds.length || positionIds.size !== entries.length ||
+                  currentIds.some(id => !positionIds.has(id)) ||
+                  values.some(position => !Number.isInteger(position) || position < 0 || position >= MAX_DOCK_SLOTS) ||
+                  new Set(values).size !== values.length) {
+                respondError(400, { code: "INVALID_REQUEST", error: "positions não correspondem às peças atuais" });
+                return null;
+              }
+              if (cfg.pieces.some(piece => piece.position !== requestedPositions[piece.id])) {
+                cfg.pieces = cfg.pieces
+                  .map(piece => ({ ...piece, position: requestedPositions[piece.id] }))
+                  .sort((a, b) => a.position - b.position);
+                cfg.revision += 1;
+              }
+            } else if (!isSameOrder(currentIds, ids)) {
+              const byId = new Map(cfg.pieces.map(piece => [piece.id, piece]));
+              const positions = cfg.pieces.map(piece => piece.position);
+              cfg.pieces = ids.map((id, index) => ({ ...byId.get(id), position: positions[index] }));
+              cfg.revision += 1;
+            }
+            return persistConfig(cfg);
+          })
+          .then(cfg => { if (cfg) { ok({ ok: true, config: publicCfg(cfg) }); if (onStatusChange) onStatusChange(); } })
+          .catch(err => fail(res, err)));
+      });
+      return;
+    }
+    const pieceDelete = url.pathname.match(/^\/api\/config\/pieces\/([^/]+)$/);
+    if (pieceDelete && req.method === "DELETE") {
+      let id;
+      try { id = decodeURIComponent(pieceDelete[1]); }
+      catch { respondError(400, { error: "ID inválido" }); return; }
+      readBody(req, res).then(body => {
+        if (body === BODY_TOO_BIG) return;
+        if (body === BODY_INVALID || !Number.isInteger(body?.revision)) {
+          respondError(400, { code: "INVALID_REQUEST", error: "revisão é obrigatória" });
+          return;
+        }
+        withConfigLock(() => Promise.resolve()
+          .then(() => readConfig())
+          .then(cfg => {
+            if (body.revision !== cfg.revision) { rejectRevision(cfg); return null; }
+            cfg.pieces = materializePiecePositions(cfg.pieces);
+            const index = cfg.pieces.findIndex(piece => piece.id === id);
+            if (index < 0) { respondError(404, { code: "PIECE_NOT_FOUND", error: "peça não encontrada" }); return null; }
+            cfg.pieces.splice(index, 1);
+            cfg.revision += 1;
+            return persistConfig(cfg);
+          })
+          .then(cfg => { if (cfg) { ok({ ok: true, config: publicCfg(cfg) }); if (onStatusChange) onStatusChange(); } })
+          .catch(err => fail(res, err)));
+      });
+      return;
+    }
+    const pieceOpen = url.pathname.match(/^\/api\/pieces\/([^/]+)\/open$/);
+    if (pieceOpen && req.method === "POST") {
+      let id;
+      try { id = decodeURIComponent(pieceOpen[1]); }
+      catch { respondError(400, { error: "ID inválido" }); return; }
+      // Consome o corpo para manter o mesmo limite dos demais POSTs. O
+      // conteúdo é deliberadamente ignorado: os dados vêm somente da peça
+      // persistida no Mac, nunca do cliente remoto.
+      readBody(req, res).then(body => {
+        if (body === BODY_TOO_BIG) return;
+        Promise.resolve()
+          .then(() => readConfig())
+          .then(cfg => {
+            const piece = cfg.pieces.find(current => current.id === id);
+            if (!piece) {
+              respondError(404, { code: "PIECE_NOT_FOUND", error: "peça não encontrada" });
+              return null;
+            }
+            if (piece.type === "shortcut") {
+              const trustedLoopback = isTrustedLoopbackRequest(req);
+              const allowedLocalHttp = isLocalNetworkRequest(req);
+              if (!trustedLoopback && !isSecureRequest(req) && !allowedLocalHttp) {
+                respondError(403, {
+                  code: "HTTPS_REQUIRED",
+                  error: "atalhos fora da rede local exigem HTTPS",
+                });
+                return null;
+              }
+              let safe;
+              try { safe = createShortcutPiece(piece.name, piece.emoji); }
+              catch { respondError(409, { code: "INVALID_SHORTCUT", error: "atalho inválido" }); return null; }
+              return Promise.resolve().then(() => actions.runShortcut(safe.name))
+                .then(() => ok({ ok: true, piece: safe }))
+                .catch(err => {
+                  if (err?.code === "SHORTCUT_ALREADY_RUNNING") {
+                    respondError(409, { code: err.code, error: "atalho já está em execução" });
+                  } else {
+                    fail(res, err);
+                  }
+                });
+            }
+            if (piece.type !== "website") {
+              respondError(409, { code: "PIECE_NOT_WEBSITE", error: "a peça não é um site" });
+              return null;
+            }
+            let safe;
+            try { safe = createWebsitePiece(piece.title, piece.url); }
+            catch (err) { respondError(409, { code: "INVALID_WEBSITE", error: "site inválido" }); return null; }
+            return Promise.resolve().then(() => actions.openWebsite(safe.url))
+              .then(() => ok({ ok: true, piece: safe }));
+          })
+          .catch(err => fail(res, err));
+      });
+      return;
+    }
+    // Status p/ app Mac: quantos devices escutam o WS + health
+    if (url.pathname === "/api/status" && req.method === "GET") {
+      Promise.resolve()
+        .then(() => readConfig())
+        .then(cfg => ok({
+          ok: true,
+          service: "Dokke",
+          devices: typeof getDeviceCount === "function" ? getDeviceCount() : 0,
+          pinned: cfg.pinned.length,
+          config: {
+            schemaVersion: cfg.schemaVersion,
+            revision: cfg.revision,
+            pieces: cfg.pieces,
+            pinned: cfg.pinned,
+            limits: pinnedLimits(),
+          },
+        }))
+        .catch(err => fail(res, err));
+      return;
+    }
+    if (url.pathname === "/api/apps/installed") {
+      Promise.resolve()
+        .then(() => appTools.listInstalledApps({ refresh: url.searchParams.get("refresh") === "1" }))
+        .then(apps => ok({ ok: true, apps }))
+        .catch(err => fail(res, err));
+      return;
+    }
+    const activate = url.pathname.match(/^\/api\/apps\/([^/]+)\/activate$/);
+    if (activate) {
+      let name;
+      try { name = decodeURIComponent(activate[1]); }
+      catch {
+        res.writeHead(400, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error: "nome inválido" }));
+        return;
+      }
+      if (req.method === "POST") {
+        readBody(req, res).then(body => {
+          if (body === BODY_TOO_BIG) return;
+          if (body === BODY_INVALID) {
+            res.writeHead(400, JSON_HEADERS);
+            res.end(JSON.stringify({ ok: false, error: "corpo inválido" }));
+            return;
+          }
+          let pid = body?.pid;
+          if (!(Number.isInteger(pid) && pid > 0)) pid = undefined;
+          Promise.resolve()
+            .then(() => actions.activateApp({ name, pid }))
+            .then(result => ok({ ok: true, ...(typeof result?.focused === "boolean" ? { focused: result.focused } : {}) }))
+            .then(() => { if (onStatusChange) onStatusChange(); })
+            .catch(err => {
+              if (["APP_NOT_FOUND", "FOCUS_FAILED", "PLATFORM_UNSUPPORTED"].includes(err?.code)) {
+                respondError(err.status ?? 500, { code: err.code, error: err.message });
+                return;
+              }
+              fail(res, err);
+            });
+        });
+        return;
+      }
+    }
+    const icon = url.pathname.match(/^\/api\/apps\/([^/]+)\/icon$/);
+    if (icon) {
+      let name;
+      try { name = decodeURIComponent(icon[1]); }
+      catch {
+        res.writeHead(400, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error: "nome inválido" }));
+        return;
+      }
+      Promise.resolve()
+        .then(() => iconService.getIconPng(name))
+        .then(buf => {
+          if (!buf) {
+            res.writeHead(404, JSON_HEADERS);
+            res.end(JSON.stringify({ ok: false, error: "app não encontrado" }));
+            return;
+          }
+          res.writeHead(200, {
+            "Content-Type": isSvg(buf) ? "image/svg+xml" : "image/png",
+            "Cache-Control": "public, max-age=86400",
+            ...SEC_HEADERS,
+          });
+          res.end(buf);
+        })
+        .catch(err => fail(res, err));
+      return;
+    }
+    if (url.pathname === "/api/obs/state") {
+      if (!obs) { ok({ ok: true, connected: false }); return; }
+      Promise.resolve().then(() => obs.getState())
+        .then(state => ok({ ok: true, connected: true, state }))
+        .catch(err => fail(res, err, { connected: true }));
+      return;
+    }
+    const obsAction = fn => {
+      if (!obs) { ok({ ok: false, connected: false }); return; }
+      Promise.resolve().then(() => obs[fn]())
+        .then(() => ok({ ok: true }))
+        .catch(err => fail(res, err));
+    };
+    if (url.pathname === "/api/obs/record" && req.method === "POST") { obsAction("toggleRecord"); return; }
+    if (url.pathname === "/api/obs/stream" && req.method === "POST") { obsAction("toggleStream"); return; }
+    if (url.pathname === "/api/obs/stop-all" && req.method === "POST") { obsAction("stopAll"); return; }
+    if (url.pathname === "/api/obs/scene" && req.method === "POST") {
+      readBody(req, res).then(body => {
+        if (body === BODY_TOO_BIG) return;
+        if (body === BODY_INVALID) {
+          res.writeHead(400, JSON_HEADERS);
+          res.end(JSON.stringify({ ok: false, error: "corpo inválido" }));
+          return;
+        }
+        if (!(typeof body?.scene === "string" && body.scene.trim() !== "")) {
+          res.writeHead(400, JSON_HEADERS);
+          res.end(JSON.stringify({ ok: false, error: "cena inválida" }));
+          return;
+        }
+        if (!obs) { ok({ ok: false, connected: false }); return; }
+        Promise.resolve().then(() => obs.switchScene(body.scene.trim()))
+          .then(() => ok({ ok: true }))
+          .catch(err => fail(res, err));
+      });
+      return;
+    }
+    const file = url.pathname === "/" ? "/index.html" : url.pathname === "/host" ? "/host.html" : url.pathname;
+    const p = join(root, file);
+    /* path traversal guard: resolved path must stay inside root */
+    if (!resolve(p).startsWith(resolve(root))) {
+      res.writeHead(403, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: "acesso negado" }));
+      return;
+    }
+    const isUi = url.pathname === "/" || url.pathname === "/host" || url.pathname.endsWith("/host.html") || url.pathname.endsWith("/index.html") || url.pathname.endsWith("/sw.js");
+    readFile(p).then(b => {
+      res.writeHead(200, {
+        "Content-Type": `${MIME[extname(p)] || "text/plain"}; charset=utf-8`,
+        "Cache-Control": isUi ? "no-cache, no-store, must-revalidate" : "public, max-age=86400",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "Referrer-Policy": "strict-origin-when-cross-origin",
+      });
+      res.end(b);
+    })
+      .catch(() => { res.writeHead(404); res.end("not found"); });
+  };
+  return handler;
+}
+
+export async function startServer(arg = {}) {
+  const opts = typeof arg === "number" ? { port: arg } : (arg ?? {});
+  const port = opts.port ?? (process.env.PORT ? Number(process.env.PORT) : 3000);
+  const requestedHeartbeat = Number(opts.wsHeartbeatMs);
+  const wsHeartbeatMs = Number.isFinite(requestedHeartbeat) && requestedHeartbeat >= 10
+    ? requestedHeartbeat
+    : WS_HEARTBEAT_MS;
+  if (opts.obs === undefined) {
+    opts.obs = await connectOBS({
+      password: process.env.OBS_WS_PASSWORD,
+      host: process.env.OBS_WS_HOST,
+      port: process.env.OBS_WS_PORT && Number(process.env.OBS_WS_PORT),
+    });
+  }
+  const configProvided = opts.config !== undefined;
+  // pasta de dados do usuário (sobrevive a reinstalação) — config + pin ficam aqui
+  function userDataDir() {
+    const home = process.env.HOME || process.env.USERPROFILE || ".";
+    if (process.platform === "win32") return join(process.env.APPDATA || home, "Dokke");
+    if (process.platform === "darwin") return join(home, "Library", "Application Support", "Dokke");
+    return join(process.env.XDG_CONFIG_HOME || join(home, ".config"), "dokke");
+  }
+  const dataDir = opts.dataDir ?? process.env.DOKKE_DATA_DIR ?? userDataDir();
+  try { mkdirSync(dataDir, { recursive: true }); } catch (e) {}
+  const userConfig = join(dataDir, "config.json");
+  // migração: versões antigas guardavam config dentro do bundle — se o destino
+  // não existe mas o bundle tem dados, copia antes de começar (nunca sobrescreve)
+  if (!existsSync(userConfig)) {
+    try {
+      const seed = JSON.parse(readFileSync(join(import.meta.dirname, "config.json"), "utf8"));
+      if (seed && typeof seed === "object" && Object.keys(seed).length > 0) {
+        writeFileSync(userConfig, JSON.stringify(seed, null, 2));
+      }
+    } catch {}
+  }
+  const configFile = configProvided ? null : (opts.configFile ?? userConfig);
+  // pin de acesso (4 dígitos): fixo em .j5-pin, só regenera via POST /api/pin
+  const pinRoot = opts.root ?? dataDir;
+  if (!existsSync(join(pinRoot, ".j5-pin"))) {
+    try {
+      const legacy = join(import.meta.dirname, ".j5-pin");
+      if (existsSync(legacy)) copyFileSync(legacy, join(pinRoot, ".j5-pin"));
+    } catch {}
+  }
+  let currentPin = await ensurePin(pinRoot);
+  // sessões persistem no dataDir: reinício não desloga os kiosks
+  const sessionStore = opts.sessionStore ?? createSessionStore({ file: join(dataDir, "j5-sessions.json") });
+  opts.auth = {
+    getPin: () => currentPin,
+    setPin: async (p) => {
+      currentPin = p;
+      await writePinFile(p, pinRoot);
+      // pin novo = pareamento novo: nenhuma sessão antiga sobrevive
+      await sessionStore.revokeAll();
+    },
+    issueSession: () => sessionStore.issue(),
+    checkSession: (t) => sessionStore.check(t),
+  };
+  opts.trustLoopback = opts.trustLoopback !== false;
+  const uiVer = () => uiVersion(join(import.meta.dirname, "public"));
+  // uma única plataforma: o feed de status e as rotas compartilham o mesmo cache
+  const platform = createPlatform({ dataDir });
+  const feed = createStatusFeed({
+    readConfig: () => configFile ? loadConfig(configFile) : Promise.resolve(opts.config || { pinned: [] }),
+    listProcesses: (opts.appTools && opts.appTools.listAppProcesses)
+      ? opts.appTools.listAppProcesses
+      : platform.appTools.listAppProcesses,
+    version: uiVer,
+  });
+  const handler = makeApp({
+    ...opts,
+    appTools: opts.appTools ?? platform.appTools,
+    actions: opts.actions ?? platform.actions,
+    iconService: opts.iconService ?? platform.iconService,
+    dataDir,
+    configFile: configFile ?? undefined,
+    onStatusChange: () => feed.ping(),
+    getDeviceCount: () => feed.clientCount(),
+  });
+  const server = makeServer();
+  server.on("request", handler);
+  // path /ws é o default do upgrade no mesmo server; clients conectam em ws://host:port/
+  // (browser usa location.host + "/ws" — o ws library aceita qualquer path no mesmo port)
+  const wss = new WebSocketServer({
+    server,
+    verifyClient: (info) => {
+      if (!(opts.allowRemote ?? (req => process.env.DOKKE_ALLOW_PUBLIC === "1" || isAllowedRemoteAddress(req.socket?.remoteAddress)))(info.req)) return false;
+      if (!sameOrigin(info.req)) return false;
+      if (opts.trustLoopback && isTrustedLoopbackRequest(info.req)) return true;
+      return !!opts.auth?.checkSession?.(tokenFromCookie(info.req.headers.cookie));
+    },
+  });
+  // Mantém os dois EventEmitters protegidos também depois do startup. Sem estes
+  // listeners, um erro encaminhado pelo ws pode terminar o processo Node.
+  server.on("error", error => console.error("[dokke] HTTP error:", error?.message ?? error));
+  wss.on("error", error => console.error("[dokke] WebSocket error:", error?.message ?? error));
+  wss.on("connection", (ws) => {
+    ws.isAlive = true;
+    ws.on("pong", () => { ws.isAlive = true; });
+    let lastPingAt = 0;
+    ws.on("message", (raw) => {
+      let m = null;
+      try { m = JSON.parse(raw.toString("utf8")); } catch (e) {}
+      // o feed já empurra sozinho a cada STATUS_POLL_MS; ping de client só
+      // adianta o push se respeitar o intervalo mínimo (anti-amplificação)
+      if (m && m.type === "ping") {
+        const now = Date.now();
+        if (now - lastPingAt >= PING_MIN_INTERVAL_MS) {
+          lastPingAt = now;
+          feed.ping();
+        }
+      }
+    });
+    feed.addClient(ws);
+  });
+  const heartbeatTimer = setInterval(() => {
+    for (const ws of wss.clients) {
+      if (ws.isAlive === false) {
+        ws.terminate();
+        continue;
+      }
+      ws.isAlive = false;
+      if (ws.readyState === 1) {
+        try { ws.ping(); } catch (e) {}
+      }
+    }
+  }, wsHeartbeatMs);
+  if (heartbeatTimer.unref) heartbeatTimer.unref();
+  const stopHeartbeat = () => clearInterval(heartbeatTimer);
+  await new Promise((res, rej) => {
+    let settled = false;
+    let listenPort = port;
+    let attempts = 0;
+    let retryScheduled = false;
+    const cleanupStartupListeners = () => {
+      server.off("error", onStartupError);
+      wss.off("error", onStartupError);
+    };
+    const rejectStartup = error => {
+      if (settled) return;
+      settled = true;
+      cleanupStartupListeners();
+      stopHeartbeat();
+      try { wss.close(); } catch {}
+      rej(error);
+    };
+    const resolveStartup = () => {
+      if (settled) return;
+      settled = true;
+      cleanupStartupListeners();
+      res();
+    };
+    // Porta ocupada: com portFallback, tenta as próximas (a descoberta UDP já
+    // anuncia a porta real, então o app Android continua achando o servidor).
+    const onStartupError = error => {
+      if (error?.code === "EADDRINUSE" && opts.portFallback === true && listenPort !== 0 && attempts < 9) {
+        if (retryScheduled) return; // ws repassa o mesmo erro ao wss
+        retryScheduled = true;
+        attempts += 1;
+        listenPort += 1;
+        setImmediate(() => { retryScheduled = false; server.listen(listenPort, resolveStartup); });
+        return;
+      }
+      rejectStartup(error);
+    };
+    // Registra os dois listeners antes do bind: ws encaminha falhas do servidor
+    // HTTP, portanto ambos precisam tratar a mesma falha de inicialização.
+    server.on("error", onStartupError);
+    wss.on("error", onStartupError);
+    server.listen(listenPort, resolveStartup);
+  });
+  let closed = false;
+  const close = () => new Promise((resolve, reject) => {
+    if (closed) return resolve();
+    if (!server.listening) {
+      closed = true;
+      stopHeartbeat();
+      feed.close();
+      try { wss.close(); } catch (e) {}
+      return resolve();
+    }
+    closed = true;
+    stopHeartbeat();
+    feed.close();
+    try { wss.close(); } catch (e) {}
+    server.close(e => e ? reject(e) : resolve());
+  });
+  return { port: server.address().port, close };
+}
+
+// bootstrap: só quando executado direto (node server.js), nunca no import
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const proto = (process.env.HTTPS_CERT && process.env.HTTPS_KEY) ? "https" : "http";
+  startServer({ portFallback: process.env.DOKKE_PORT_FALLBACK !== "0" })
+    .then(({ port }) => {
+      console.log(`Dokke ouvindo em http://127.0.0.1:${port}`);
+      // responder descoberta UDP pra devices Android acharem o IP sozinhos
+      startDiscovery(DISCOVERY_PORT, { portHint: port }).unref();
+    })
+    .catch(err => { console.error(err); process.exitCode = 1; });
+}

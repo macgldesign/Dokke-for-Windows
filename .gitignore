@@ -1,0 +1,35 @@
+node_modules/
+.icon-cache/
+*.log
+.DS_Store
+build/
+*.apk.bak
+index.html.bak
+.gradle/
+android/.gradle/
+android/build/
+android/app/build/
+android/.idea/
+android/local.properties
+mac/.build/
+mac/.swiftpm/
+mac/dist/
+
+# pin de acesso (segredo local — nunca vai pro git)
+.j5-pin
+
+# Xcode user state (gerado localmente, não vai pro git)
+ios/Dokke.xcodeproj/xcuserdata/
+
+# Processo interno do mantenedor, não faz parte da distribuição pública
+.spec/
+onpspec.config.json
+
+# Página de instalação (artefatos locais do Vite)
+docs/dist/
+.vercel/
+ios/Dokke.xcodeproj/project.xcworkspace/xcuserdata/
+dist/
+.build-cache/
+native/**/bin/
+native/**/obj/
