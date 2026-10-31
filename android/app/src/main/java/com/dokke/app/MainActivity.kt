@@ -21,7 +21,9 @@ import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
+import android.text.InputType
 import android.view.View
+import android.view.inputmethod.EditorInfo
 import android.view.WindowManager
 import android.webkit.ConsoleMessage
 import android.webkit.JsResult
@@ -30,10 +32,12 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -336,17 +340,45 @@ class MainActivity : ComponentActivity() {
                 }
             } catch (_: Exception) {}
             sock?.close()
+            // Plano B: roteadores e firewalls costumam barrar o broadcast UDP, mas o TCP que o
+            // navegador usa passa. Procura o Dokke no /24 do próprio celular.
+            if (found == null) found = try { scanLocalNetwork() } catch (_: Exception) { null }
             onResult(found)
         }.start()
     }
 
+    /** Varre o /24 do celular (portas 3000–3003) e devolve o primeiro que cumprir o health do Dokke. */
+    private fun scanLocalNetwork(): String? {
+        val ip = DokkeDiscovery.localIpv4() ?: return null
+        val hosts = DokkeDiscovery.neighbors(ip)
+        if (hosts.isEmpty()) return null
+        val ports = intArrayOf(3000, 3001, 3002, 3003)
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(48)
+        return try {
+            // ordem por porta: a 3000 (padrão) é testada em todos os hosts antes das demais
+            val tasks = ports.flatMap { port ->
+                hosts.map { host ->
+                    java.util.concurrent.Callable<String> {
+                        verifyDokkeServer("http://$host:$port", 500)
+                            ?: throw IllegalStateException("sem Dokke em $host:$port")
+                    }
+                }
+            }
+            pool.invokeAny(tasks, 15, java.util.concurrent.TimeUnit.SECONDS)
+        } catch (_: Exception) {
+            null
+        } finally {
+            pool.shutdownNow()
+        }
+    }
+
     /** UDP é apenas descoberta; a troca de endpoint exige o health contract. */
-    private fun verifyDokkeServer(candidate: String): String? {
+    private fun verifyDokkeServer(candidate: String, timeoutMs: Int = 1200): String? {
         val healthUrl = DokkeDiscovery.healthUrl(candidate) ?: return null
         val connection = try { URL(healthUrl).openConnection() as HttpURLConnection } catch (_: Exception) { return null }
         return try {
-            connection.connectTimeout = 1200
-            connection.readTimeout = 1200
+            connection.connectTimeout = timeoutMs
+            connection.readTimeout = timeoutMs
             connection.requestMethod = "GET"
             connection.useCaches = false
             val body = connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
@@ -598,6 +630,39 @@ class MainActivity : ComponentActivity() {
                 topMargin = dp(24)
             })
 
+        val manualInput = EditText(this).apply {
+            hint = message("offline.manualHint")
+            setHintTextColor(Color.rgb(125, 125, 140))
+            setTextColor(Color.WHITE)
+            textSize = 15f
+            isSingleLine = true
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            imeOptions = EditorInfo.IME_ACTION_GO
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            background = roundedBackground(Color.rgb(24, 24, 34), Color.rgb(60, 60, 75), 12)
+        }
+        panel.addView(manualInput, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(22)
+            })
+
+        val manualConnect = Button(this).apply {
+            text = message("offline.manualConnect")
+            isAllCaps = false
+            textSize = 15f
+            setTextColor(Color.WHITE)
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            background = roundedBackground(Color.rgb(38, 38, 52), Color.rgb(70, 70, 88), 12)
+            setOnClickListener { connectManually(manualInput) }
+        }
+        manualInput.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_GO) { connectManually(manualInput); true } else false
+        }
+        panel.addView(manualConnect, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, dp(48)).apply {
+                topMargin = dp(10)
+            })
+
         val retry = Button(this).apply {
             text = message("offline.retry")
             isAllCaps = false
@@ -609,7 +674,7 @@ class MainActivity : ComponentActivity() {
         }
         panel.addView(retry, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, dp(52)).apply {
-                topMargin = dp(18)
+                topMargin = dp(14)
             })
 
         val hint = TextView(this).apply {
@@ -623,7 +688,48 @@ class MainActivity : ComponentActivity() {
                 topMargin = dp(16)
             })
 
-        return panel
+        // Rolagem + espaço para o teclado: o campo de endereço precisa continuar visível ao digitar.
+        val scroll = ScrollView(this).apply {
+            isFillViewport = true
+            clipToPadding = false
+            setBackgroundColor(Color.rgb(10, 10, 18))
+            addView(panel, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT))
+        }
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(scroll) { v, insets ->
+            val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
+            v.setPadding(0, 0, 0, ime.bottom)
+            insets
+        }
+        return scroll
+    }
+
+    /** Conexão manual: não depende da descoberta UDP. Só aceita quem responde ao health do Dokke. */
+    private fun connectManually(input: EditText) {
+        val target = ServerUrl.parseManual(input.text?.toString())
+        if (target == null) {
+            Toast.makeText(this, message("offline.manualError"), Toast.LENGTH_LONG).show()
+            return
+        }
+        (getSystemService(Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager)
+            ?.hideSoftInputFromWindow(input.windowToken, 0)
+        Thread {
+            val verified = verifyDokkeServer(target.url)
+            runOnUiThread {
+                if (verified == null) {
+                    Toast.makeText(this, message("offline.manualError"), Toast.LENGTH_LONG).show()
+                    return@runOnUiThread
+                }
+                serverUrl = verified
+                DokkeConnectionStore.save(connectionPrefs, verified)
+                healed = false
+                mainFrameFailed = false
+                hideOfflineScreen()
+                loader.visibility = View.VISIBLE
+                // o PIN do link do QR vai no fragmento: a PWA o lê, entra sozinha e limpa a URL
+                web.loadUrl(if (target.pin != null) "$verified#pin=${target.pin}" else verified)
+            }
+        }.start()
     }
 
     private fun retryConnection() {

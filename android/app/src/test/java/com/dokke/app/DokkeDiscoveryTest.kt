@@ -34,4 +34,15 @@ class DokkeDiscoveryTest {
 
         assertTrue("Android ICU requires the closing object brace to be escaped", pattern.contains("\\}"))
     }
+
+    @Test
+    fun neighborsListsTheOtherHostsOfTheSlash24() {
+        val hosts = DokkeDiscovery.neighbors("192.168.1.4")
+        assertEquals(253, hosts.size)
+        assertFalse(hosts.contains("192.168.1.4"))
+        assertTrue(hosts.contains("192.168.1.1"))
+        assertTrue(hosts.contains("192.168.1.254"))
+        assertTrue(DokkeDiscovery.neighbors("not-an-ip").isEmpty())
+        assertTrue(DokkeDiscovery.neighbors("300.1.1.1").isEmpty())
+    }
 }

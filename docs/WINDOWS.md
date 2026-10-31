@@ -17,6 +17,9 @@ O ícone da bandeja tem: abrir o Dokke, copiar o endereço, liberar no Firewall,
 pasta de logs e sair. Dados e logs ficam em `%APPDATA%\Dokke`.
 
 ### Se o celular não conectar
+- No **app Android**, se ele não achar o PC sozinho, digite na tela inicial o endereço da tela **Conectar** (por exemplo `192.168.0.15:3000`; colar o link do QR também funciona).
+- O app Android procura o PC de duas formas: um aviso UDP (porta 3001) e, se ninguém responder, uma varredura da própria rede pelas portas TCP 3000–3003 (o mesmo caminho que o navegador usa). Depois de achar, ele guarda o endereço.
+- Para saber se o PC recebeu o aviso UDP do app, abra `%APPDATA%\Dokke\logs\server.log`: ao abrir o app deve aparecer uma linha `[discover] … → dokke:<ip>:<porta>`. Se não aparece, o aviso UDP (porta 3001) não chegou: confira o Firewall (**Liberar no Firewall…**) e se o roteador não bloqueia broadcast entre aparelhos.
 - A rede do PC precisa estar como **Privada** (Configurações → Rede → Propriedades da rede).
 - Use **Liberar no Firewall…** no menu da bandeja.
 - Com VPN, WSL ou VirtualBox o PC tem vários endereços: escolha o certo na lista da tela **Conectar**.

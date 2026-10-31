@@ -28,7 +28,10 @@ object AndroidLanguage {
         "offline.description" to "Abra o aplicativo Dokke no computador para liberar o dock neste celular.",
         "offline.status" to "Computador desconectado",
         "offline.retry" to "Tentar novamente",
-        "offline.hint" to "O celular está funcionando. Só falta abrir o Dokke no computador.",
+        "offline.hint" to "Se o celular não achar o PC sozinho, digite o endereço que aparece na tela Conectar do Dokke.",
+        "offline.manualHint" to "Endereço do PC (ex.: 192.168.0.15:3000)",
+        "offline.manualConnect" to "Conectar neste endereço",
+        "offline.manualError" to "Não foi possível conectar nesse endereço. Confira o IP e se o Dokke está aberto no PC.",
     )
 
     private val english = mapOf(
@@ -53,7 +56,10 @@ object AndroidLanguage {
         "offline.description" to "Open the Dokke app on the computer to enable the dock on this phone.",
         "offline.status" to "Computer disconnected",
         "offline.retry" to "Try again",
-        "offline.hint" to "The phone is working. Dokke just needs to be opened on the computer.",
+        "offline.hint" to "If your phone can't find the PC by itself, type the address shown in Dokke's Connect screen.",
+        "offline.manualHint" to "PC address (e.g. 192.168.0.15:3000)",
+        "offline.manualConnect" to "Connect to this address",
+        "offline.manualError" to "Couldn't connect to that address. Check the IP and that Dokke is open on the PC.",
     )
 
     fun text(context: Context, key: String, values: Map<String, String> = emptyMap()): String {

@@ -42,6 +42,37 @@ internal object DokkeDiscovery {
         return octets.size == 4 && octets.all { it.toIntOrNull()?.let { value -> value in 0..255 } == true }
     }
 
+    /** IPv4 privado do aparelho na rede local (Wi-Fi/Ethernet de preferência), ou null. */
+    fun localIpv4(): String? {
+        return try {
+            val interfaces = NetworkInterface.getNetworkInterfaces() ?: return null
+            var fallback: String? = null
+            while (interfaces.hasMoreElements()) {
+                val network = interfaces.nextElement()
+                if (!network.isUp || network.isLoopback) continue
+                for (address in network.interfaceAddresses) {
+                    val ipv4 = address.address as? Inet4Address ?: continue
+                    if (!ipv4.isSiteLocalAddress) continue
+                    val text = ipv4.hostAddress ?: continue
+                    if (network.name.startsWith("wlan") || network.name.startsWith("eth")) return text
+                    if (fallback == null) fallback = text
+                }
+            }
+            fallback
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** Os outros 253 endereços do /24 de [ip]: onde o PC está na maioria das redes domésticas. */
+    fun neighbors(ip: String): List<String> {
+        if (!isValidIpv4(ip)) return emptyList()
+        val parts = ip.split('.')
+        val self = parts[3].toInt()
+        val prefix = parts.take(3).joinToString(".")
+        return (1..254).filter { it != self }.map { "$prefix.$it" }
+    }
+
     /** Broadcast address for the first active IPv4 interface. */
     fun directedBroadcast(): String? {
         return try {

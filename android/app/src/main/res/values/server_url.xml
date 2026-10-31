@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Fallback: o app descobre o servidor sozinho via UDP broadcast (porta 3001)
-         quando o IP do Mac muda. Este valor só é usado se a descoberta falhar.
-         Pode também sobrescrever em runtime via SharedPreferences("prefs", "server_url"). -->
-    <string name="server_url">http://192.168.1.5:3000</string>
+    <!-- Vazio de propósito: o app descobre o PC sozinho via UDP (porta 3001) ou pelo endereço
+         digitado na tela inicial, e guarda o último endereço validado. Um IP fixo aqui faria o
+         app abrir um aparelho qualquer da rede que por acaso tenha esse número. -->
+    <string name="server_url"></string>
 </resources>
